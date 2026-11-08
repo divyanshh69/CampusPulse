@@ -1,0 +1,6 @@
+{
+  "name": "CampusPulse — College Club Management Platform",
+  "description": "A modern web platform for college clubs to manage members, departments, events, attendance, credits, tasks, and analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,214 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Department {
+  id          String      @id @default(cuid())
+  name        String      @unique
+  code        String      @unique
+  description String
+  headId      String?     @unique
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  events      ClubEvent[]
+  tasks       ClubTask[]
+  head        User?       @relation("DepartmentHead", fields: [headId], references: [id])
+  members     User[]      @relation("DepartmentMembers")
+
+  @@map("departments")
+}
+
+model User {
+  id                   String              @id @default(cuid())
+  name                 String
+  email                String              @unique
+  passwordHash         String?
+  studentId            String              @unique
+  academicYear         AcademicYear        @default(FIRST_YEAR)
+  major                String
+  departmentId         String
+  role                 UserRole            @default(MEMBER)
+  attendancePercentage Float               @default(100.0)
+  totalCredits         Int                 @default(50)
+  joinedDate           String
+  status               UserStatus          @default(ACTIVE)
+  bio                  String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  activityLogs         ActivityLog[]
+  attendanceRecords    AttendanceRecord[]
+  assignedTasks        ClubTask[]
+  issuedCredits        CreditTransaction[] @relation("IssuedCredits")
+  creditTransactions   CreditTransaction[] @relation("MemberCredits")
+  headedDepartment     Department?         @relation("DepartmentHead")
+  department           Department          @relation("DepartmentMembers", fields: [departmentId], references: [id])
+
+  @@index([departmentId])
+  @@index([role])
+  @@index([status])
+  @@map("users")
+}
+
+model ClubEvent {
+  id                String             @id @default(cuid())
+  title             String
+  description       String
+  date              String
+  time              String
+  location          String
+  departmentId      String?
+  status            EventStatus        @default(UPCOMING)
+  capacity          Int                @default(60)
+  creditReward      Int                @default(20)
+  mandatory         Boolean            @default(false)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  attendanceRecords AttendanceRecord[]
+  department        Department?        @relation(fields: [departmentId], references: [id])
+
+  @@index([status])
+  @@index([date])
+  @@index([departmentId])
+  @@map("club_events")
+}
+
+model AttendanceRecord {
+  id        String           @id @default(cuid())
+  eventId   String
+  memberId  String
+  status    AttendanceStatus @default(PRESENT)
+  markedAt  DateTime         @default(now())
+  markedBy  String
+  note      String?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  event     ClubEvent        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  member    User             @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, memberId])
+  @@index([eventId])
+  @@index([memberId])
+  @@map("attendance_records")
+}
+
+model CreditTransaction {
+  id        String         @id @default(cuid())
+  memberId  String
+  delta     Int
+  reason    String
+  category  CreditCategory
+  timestamp DateTime       @default(now())
+  issuedBy  String
+  issuerId  String?
+  createdAt DateTime       @default(now())
+  issuer    User?          @relation("IssuedCredits", fields: [issuerId], references: [id])
+  member    User           @relation("MemberCredits", fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([memberId])
+  @@index([timestamp])
+  @@map("credit_transactions")
+}
+
+model ClubTask {
+  id           String       @id @default(cuid())
+  title        String
+  description  String
+  assignedToId String
+  departmentId String
+  deadline     String
+  status       TaskStatus   @default(TO_DO)
+  priority     TaskPriority @default(MEDIUM)
+  creditValue  Int          @default(20)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  assignedTo   User         @relation(fields: [assignedToId], references: [id], onDelete: Cascade)
+  department   Department   @relation(fields: [departmentId], references: [id])
+
+  @@index([assignedToId])
+  @@index([departmentId])
+  @@index([status])
+  @@map("club_tasks")
+}
+
+model ActivityLog {
+  id        String           @id @default(cuid())
+  actorId   String?
+  actorName String
+  actorRole String
+  action    String
+  target    String
+  category  ActivityCategory
+  timestamp DateTime         @default(now())
+  createdAt DateTime         @default(now())
+  actor     User?            @relation(fields: [actorId], references: [id])
+
+  @@index([category])
+  @@index([createdAt])
+  @@map("activity_logs")
+}
+
+enum UserRole {
+  ADMIN
+  DEPARTMENT_HEAD
+  MEMBER
+}
+
+enum AcademicYear {
+  FIRST_YEAR  @map("1st Year")
+  SECOND_YEAR @map("2nd Year")
+  THIRD_YEAR  @map("3rd Year")
+  FOURTH_YEAR @map("4th Year")
+}
+
+enum UserStatus {
+  ACTIVE
+  PROBATION
+  ALUMNI
+}
+
+enum EventStatus {
+  UPCOMING
+  ONGOING
+  COMPLETED
+  CANCELLED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  EXCUSED
+}
+
+enum CreditCategory {
+  EVENT_ATTENDANCE
+  TASK_COMPLETION
+  LEADERSHIP_BONUS
+  PENALTY_DEDUCTION
+  PEER_RECOGNITION
+}
+
+enum TaskPriority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum TaskStatus {
+  TO_DO
+  IN_PROGRESS
+  UNDER_REVIEW
+  COMPLETED
+}
+
+enum ActivityCategory {
+  MEMBER
+  EVENT
+  ATTENDANCE
+  CREDIT
+  TASK
+}
