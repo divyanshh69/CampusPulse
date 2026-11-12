@@ -7,7 +7,8 @@ import { UserRole } from '@prisma/client';
 const router = Router();
 
 router.get('/status', AttendanceController.status);
-router.get('/event/:eventId', AttendanceController.getEventAttendance);
+router.get('/', requireAuth, AttendanceController.listAttendance);
+router.get('/event/:eventId', requireAuth, AttendanceController.getEventAttendance);
 router.post(
   '/mark',
   requireAuth,
@@ -22,4 +23,3 @@ router.post(
 );
 
 export default router;
-

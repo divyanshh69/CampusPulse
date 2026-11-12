@@ -5,8 +5,7 @@ import { requireAuth } from '../middleware/auth.middleware';
 const router = Router();
 
 router.get('/status', ActivitiesController.status);
-router.get('/', ActivitiesController.listActivities);
+router.get('/', requireAuth, ActivitiesController.listActivities);
 router.post('/', requireAuth, ActivitiesController.recordActivity);
 
 export default router;
-

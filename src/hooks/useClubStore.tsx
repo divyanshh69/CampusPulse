@@ -16,16 +16,9 @@ import {
   INITIAL_DEPARTMENTS,
   INITIAL_MEMBERS,
   INITIAL_EVENTS,
-  INITIAL_ATTENDANCE,
-  INITIAL_CREDITS,
-  INITIAL_TASKS,
-  INITIAL_ACTIVITIES,
 } from '../data/mockData';
 import {
   calculateDashboardMetrics,
-  updateEventAttendance,
-  applyCreditAdjustment,
-  updateTaskStatus,
   DashboardMetrics,
 } from '../utils/clubLogic';
 import {
@@ -42,6 +35,18 @@ import {
   createEventApi,
   updateEventApi,
   deleteEventApi,
+  getDepartmentsApi,
+  changePasswordApi,
+  getAllAttendanceApi,
+  getEventAttendanceApi,
+  markAttendanceApi,
+  markAllPresentApi,
+  getCreditTransactionsApi,
+  adjustCreditsApi,
+  getTasksApi,
+  createTaskApi,
+  updateTaskStatusApi,
+  getActivitiesApi,
 } from '../services/api';
 
 interface ClubStoreContextValue {
@@ -57,19 +62,39 @@ interface ClubStoreContextValue {
   loginAsRole?: (role: UserRole, email?: string) => void;
 
   departments: Department[];
+  fetchDepartments: () => Promise<void>;
   members: User[];
   isLoadingMembers: boolean;
   membersError: string | null;
   fetchMembers: () => Promise<void>;
+  viewingMember: User | null;
+  setViewingMember: (member: User | null) => void;
 
   events: ClubEvent[];
   isLoadingEvents: boolean;
   eventsError: string | null;
   fetchEvents: () => Promise<void>;
+
   attendance: AttendanceRecord[];
+  isLoadingAttendance: boolean;
+  attendanceError: string | null;
+  fetchAttendance: (eventId?: string) => Promise<void>;
+
   credits: CreditTransaction[];
+  isLoadingCredits: boolean;
+  creditsError: string | null;
+  fetchCredits: () => Promise<void>;
+
   tasks: ClubTask[];
+  isLoadingTasks: boolean;
+  tasksError: string | null;
+  fetchTasks: () => Promise<void>;
+
   activities: ActivityLog[];
+  isLoadingActivities: boolean;
+  activitiesError: string | null;
+  fetchActivities: () => Promise<void>;
+
   metrics: DashboardMetrics;
 
   addMember: (
@@ -89,20 +114,22 @@ interface ClubStoreContextValue {
     updates: Partial<ClubEvent>
   ) => Promise<ClubEvent>;
   deleteEvent: (id: string) => Promise<void>;
+  changePassword: (oldPassword: string, newPassword: string) => Promise<void>;
+
   markAttendance: (
     eventId: string,
     memberId: string,
     status: AttendanceStatus
-  ) => void;
-  markAllPresentForEvent: (eventId: string) => void;
+  ) => Promise<void>;
+  markAllPresentForEvent: (eventId: string) => Promise<void>;
   adjustMemberCredits: (params: {
     memberId: string;
     delta: number;
     reason: string;
     category: CreditTransaction['category'];
-  }) => void;
-  addTask: (newTask: Omit<ClubTask, 'id'>) => void;
-  changeTaskStatus: (taskId: string, status: ClubTask['status']) => void;
+  }) => Promise<void>;
+  addTask: (newTask: Omit<ClubTask, 'id'>) => Promise<ClubTask>;
+  changeTaskStatus: (taskId: string, status: ClubTask['status']) => Promise<void>;
 }
 
 const ClubStoreContext = createContext<ClubStoreContextValue | null>(null);
@@ -124,15 +151,42 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
   const [isLoadingMembers, setIsLoadingMembers] = useState<boolean>(false);
   const [membersError, setMembersError] = useState<string | null>(null);
 
-  const [departments] = useState<Department[]>(INITIAL_DEPARTMENTS);
+  const [departments, setDepartments] = useState<Department[]>(INITIAL_DEPARTMENTS);
+  const [viewingMember, setViewingMember] = useState<User | null>(null);
+
   const [events, setEvents] = useState<ClubEvent[]>(INITIAL_EVENTS);
   const [isLoadingEvents, setIsLoadingEvents] = useState<boolean>(false);
   const [eventsError, setEventsError] = useState<string | null>(null);
 
-  const [attendance, setAttendance] = useState<AttendanceRecord[]>(INITIAL_ATTENDANCE);
-  const [credits, setCredits] = useState<CreditTransaction[]>(INITIAL_CREDITS);
-  const [tasks, setTasks] = useState<ClubTask[]>(INITIAL_TASKS);
-  const [activities, setActivities] = useState<ActivityLog[]>(INITIAL_ACTIVITIES);
+  const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
+  const [isLoadingAttendance, setIsLoadingAttendance] = useState<boolean>(false);
+  const [attendanceError, setAttendanceError] = useState<string | null>(null);
+
+  const [credits, setCredits] = useState<CreditTransaction[]>([]);
+  const [isLoadingCredits, setIsLoadingCredits] = useState<boolean>(false);
+  const [creditsError, setCreditsError] = useState<string | null>(null);
+
+  const [tasks, setTasks] = useState<ClubTask[]>([]);
+  const [isLoadingTasks, setIsLoadingTasks] = useState<boolean>(false);
+  const [tasksError, setTasksError] = useState<string | null>(null);
+
+  const [activities, setActivities] = useState<ActivityLog[]>([]);
+  const [isLoadingActivities, setIsLoadingActivities] = useState<boolean>(false);
+  const [activitiesError, setActivitiesError] = useState<string | null>(null);
+
+  /**
+   * Fetches real departments with live member counts from PostgreSQL
+   */
+  const fetchDepartments = useCallback(async () => {
+    try {
+      const realDepts = await getDepartmentsApi();
+      if (realDepts && realDepts.length > 0) {
+        setDepartments(realDepts);
+      }
+    } catch (err) {
+      console.warn('Failed to fetch departments from backend API:', err);
+    }
+  }, []);
 
   /**
    * Fetches real members from PostgreSQL via Express API
@@ -168,6 +222,99 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, []);
 
+  /**
+   * Fetches real attendance records from PostgreSQL via Express API
+   */
+  const fetchAttendance = useCallback(async (eventId?: string) => {
+    setIsLoadingAttendance(true);
+    setAttendanceError(null);
+    try {
+      const records = eventId
+        ? await getEventAttendanceApi(eventId)
+        : await getAllAttendanceApi();
+      setAttendance(records);
+    } catch (err: any) {
+      console.warn('Failed to fetch attendance from API:', err);
+      setAttendanceError(err.message || 'Failed to load attendance.');
+    } finally {
+      setIsLoadingAttendance(false);
+    }
+  }, []);
+
+  /**
+   * Fetches real credit transaction ledger from PostgreSQL via Express API
+   */
+  const fetchCredits = useCallback(async () => {
+    setIsLoadingCredits(true);
+    setCreditsError(null);
+    try {
+      const txs = await getCreditTransactionsApi();
+      setCredits(txs);
+    } catch (err: any) {
+      console.warn('Failed to fetch credits from API:', err);
+      setCreditsError(err.message || 'Failed to load credits.');
+    } finally {
+      setIsLoadingCredits(false);
+    }
+  }, []);
+
+  /**
+   * Fetches real tasks from PostgreSQL via Express API
+   */
+  const fetchTasks = useCallback(async () => {
+    setIsLoadingTasks(true);
+    setTasksError(null);
+    try {
+      const realTasks = await getTasksApi();
+      setTasks(realTasks);
+    } catch (err: any) {
+      console.warn('Failed to fetch tasks from API:', err);
+      setTasksError(err.message || 'Failed to load tasks.');
+    } finally {
+      setIsLoadingTasks(false);
+    }
+  }, []);
+
+  /**
+   * Fetches real activity logs from PostgreSQL via Express API
+   */
+  const fetchActivities = useCallback(async () => {
+    setIsLoadingActivities(true);
+    setActivitiesError(null);
+    try {
+      const logs = await getActivitiesApi(40);
+      setActivities(logs);
+    } catch (err: any) {
+      console.warn('Failed to fetch activities from API:', err);
+      setActivitiesError(err.message || 'Failed to load activities.');
+    } finally {
+      setIsLoadingActivities(false);
+    }
+  }, []);
+
+  /**
+   * Loads all database modules from PostgreSQL simultaneously
+   */
+  const loadAllDatabaseData = useCallback(async () => {
+    await Promise.allSettled([
+      fetchMembers(),
+      fetchEvents(),
+      fetchDepartments(),
+      fetchAttendance(),
+      fetchCredits(),
+      fetchTasks(),
+      fetchActivities(),
+    ]);
+  }, [
+    fetchMembers,
+    fetchEvents,
+    fetchDepartments,
+    fetchAttendance,
+    fetchCredits,
+    fetchTasks,
+    fetchActivities,
+  ]);
+
   // Restore authentication session from token on application startup
   useEffect(() => {
     async function restoreSession() {
@@ -185,9 +332,8 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
         setToken(storedToken);
         setIsAuthenticated(true);
         setCurrentPage((prev) => (prev === 'login' ? 'dashboard' : prev));
-        // Once authenticated, fetch real members and events from PostgreSQL
-        fetchMembers();
-        fetchEvents();
+        // Once authenticated, fetch real data from PostgreSQL
+        await loadAllDatabaseData();
       } catch (err) {
         console.warn('Session restoration failed or token expired:', err);
         removeStoredToken();
@@ -201,7 +347,7 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
     }
 
     restoreSession();
-  }, [fetchMembers, fetchEvents]);
+  }, [loadAllDatabaseData]);
 
   const currentUser = useMemo<User>(() => {
     if (authenticatedUser) {
@@ -215,23 +361,6 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
     [members, events]
   );
 
-  const logActivity = (
-    action: string,
-    target: string,
-    category: ActivityLog['category']
-  ) => {
-    const entry: ActivityLog = {
-      id: `act-${Date.now()}`,
-      actorName: currentUser.name,
-      actorRole: currentUser.role,
-      action,
-      target,
-      timestamp: 'Just now',
-      category,
-    };
-    setActivities((prev) => [entry, ...prev]);
-  };
-
   /**
    * Real backend authentication login
    */
@@ -242,9 +371,8 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
     setAuthenticatedUser(result.user);
     setIsAuthenticated(true);
     setCurrentPage('dashboard');
-    // Fetch real members and events upon successful login
-    fetchMembers();
-    fetchEvents();
+    // Fetch all real database modules upon successful login
+    await loadAllDatabaseData();
   };
 
   /**
@@ -297,11 +425,8 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
     });
 
     setMembers((prev) => [created, ...prev]);
-    logActivity(
-      'Onboarded new member',
-      `${created.name} (${created.department})`,
-      'member'
-    );
+    fetchDepartments();
+    fetchActivities();
     return created;
   };
 
@@ -314,15 +439,12 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
   ): Promise<User> => {
     const updated = await updateMemberApi(id, updates);
     setMembers((prev) => prev.map((m) => (m.id === id ? updated : m)));
+    fetchDepartments();
     // If the active user updated their own profile, sync authenticatedUser
     if (authenticatedUser && authenticatedUser.id === id) {
       setAuthenticatedUser(updated);
     }
-    logActivity(
-      'Updated member record for',
-      `${updated.name} (${updated.department})`,
-      'member'
-    );
+    fetchActivities();
     return updated;
   };
 
@@ -332,11 +454,8 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
   const deactivateMember = async (id: string): Promise<User> => {
     const deactivated = await deactivateMemberApi(id);
     setMembers((prev) => prev.map((m) => (m.id === id ? deactivated : m)));
-    logActivity(
-      'Deactivated member (marked as Alumni)',
-      `${deactivated.name} (${deactivated.department})`,
-      'member'
-    );
+    fetchDepartments();
+    fetchActivities();
     return deactivated;
   };
 
@@ -348,7 +467,7 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
   ): Promise<ClubEvent> => {
     const created = await createEventApi(newEventData);
     setEvents((prev) => [created, ...prev]);
-    logActivity('Scheduled new event', created.title, 'event');
+    fetchActivities();
     return created;
   };
 
@@ -361,7 +480,7 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
   ): Promise<ClubEvent> => {
     const updated = await updateEventApi(id, updates);
     setEvents((prev) => prev.map((e) => (e.id === id ? updated : e)));
-    logActivity('Updated event details', updated.title, 'event');
+    fetchActivities();
     return updated;
   };
 
@@ -371,109 +490,135 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
   const deleteEvent = async (id: string): Promise<void> => {
     await deleteEventApi(id);
     setEvents((prev) => prev.filter((e) => e.id !== id));
-    logActivity('Deleted event', `Event ID: ${id}`, 'event');
+    fetchActivities();
   };
 
-  const markAttendance = (
+  /**
+   * Updates authenticated user password
+   */
+  const changePassword = async (oldPassword: string, newPassword: string): Promise<void> => {
+    await changePasswordApi(oldPassword, newPassword);
+    fetchActivities();
+  };
+
+  /**
+   * Marks member attendance in PostgreSQL database through API
+   */
+  const markAttendance = async (
     eventId: string,
     memberId: string,
     status: AttendanceStatus
-  ) => {
-    const result = updateEventAttendance(
-      attendance,
-      members,
-      eventId,
-      memberId,
-      status,
-      currentUser.name
-    );
-    setAttendance(result.updatedRecords);
-    setMembers(result.updatedMembers);
+  ): Promise<void> => {
+    try {
+      const result = await markAttendanceApi({ eventId, memberId, status });
+      // Update local attendance state immediately
+      setAttendance((prev) => {
+        const index = prev.findIndex((r) => r.eventId === eventId && r.memberId === memberId);
+        if (index !== -1) {
+          const updated = [...prev];
+          updated[index] = {
+            ...updated[index],
+            status,
+            markedAt: result.markedAt,
+            markedBy: result.markedBy,
+          };
+          return updated;
+        }
+        return [result, ...prev];
+      });
 
-    const targetMember = members.find((m) => m.id === memberId);
-    const targetEvent = events.find((e) => e.id === eventId);
-    if (targetMember && targetEvent) {
-      logActivity(
-        `Marked ${status.toLowerCase()} for`,
-        `${targetMember.name} · ${targetEvent.title}`,
-        'attendance'
-      );
+      // Update member attendancePercentage if recalculated by backend
+      if (result.attendancePercentage !== undefined) {
+        setMembers((prev) =>
+          prev.map((m) =>
+            m.id === memberId
+              ? { ...m, attendancePercentage: result.attendancePercentage! }
+              : m
+          )
+        );
+      }
+
+      fetchActivities();
+    } catch (err: any) {
+      console.error('Failed to mark attendance in database:', err);
+      throw err;
     }
   };
 
-  const markAllPresentForEvent = (eventId: string) => {
-    let currentRecords = [...attendance];
-    let currentMembers = [...members];
-    for (const member of currentMembers) {
-      const res = updateEventAttendance(
-        currentRecords,
-        currentMembers,
-        eventId,
-        member.id,
-        'Present',
-        currentUser.name
-      );
-      currentRecords = res.updatedRecords;
-      currentMembers = res.updatedMembers;
-    }
-    setAttendance(currentRecords);
-    setMembers(currentMembers);
-    const targetEvent = events.find((e) => e.id === eventId);
-    if (targetEvent) {
-      logActivity(
-        'Marked full roster Present for',
-        targetEvent.title,
-        'attendance'
-      );
+  /**
+   * Marks all members present for an event in PostgreSQL database through API
+   */
+  const markAllPresentForEvent = async (eventId: string): Promise<void> => {
+    try {
+      await markAllPresentApi(eventId);
+      await Promise.allSettled([fetchAttendance(), fetchMembers(), fetchActivities()]);
+    } catch (err: any) {
+      console.error('Failed to mark all members present in database:', err);
+      throw err;
     }
   };
 
-  const adjustMemberCredits = (params: {
+  /**
+   * Adjusts member credits in PostgreSQL database through API
+   */
+  const adjustMemberCredits = async (params: {
     memberId: string;
     delta: number;
     reason: string;
     category: CreditTransaction['category'];
-  }) => {
-    const result = applyCreditAdjustment(members, credits, {
-      ...params,
-      issuedBy: currentUser.name,
-    });
-    if (result.targetMember) {
-      setMembers(result.updatedMembers);
-      setCredits(result.updatedTransactions);
-      const sign = params.delta > 0 ? `+${params.delta}` : `${params.delta}`;
-      logActivity(
-        `Recorded ${sign} credits for`,
-        `${result.targetMember.name} (${params.reason})`,
-        'credit'
+  }): Promise<void> => {
+    try {
+      const result = await adjustCreditsApi(params);
+      setCredits((prev) => [result.transaction, ...prev]);
+      setMembers((prev) =>
+        prev.map((m) =>
+          m.id === params.memberId ? { ...m, totalCredits: result.newBalance } : m
+        )
       );
+      if (authenticatedUser && authenticatedUser.id === params.memberId) {
+        setAuthenticatedUser((prev) =>
+          prev ? { ...prev, totalCredits: result.newBalance } : prev
+        );
+      }
+      fetchActivities();
+    } catch (err: any) {
+      console.error('Failed to adjust credits in database:', err);
+      throw err;
     }
   };
 
-  const addTask = (newTaskData: Omit<ClubTask, 'id'>) => {
-    const created: ClubTask = {
-      ...newTaskData,
-      id: `tsk-${Date.now()}`,
-    };
-    setTasks((prev) => [created, ...prev]);
-    logActivity(
-      'Assigned new task to',
-      `${created.assignedToName} (${created.title})`,
-      'task'
-    );
+  /**
+   * Adds new task in PostgreSQL database through API
+   */
+  const addTask = async (newTaskData: Omit<ClubTask, 'id'>): Promise<ClubTask> => {
+    try {
+      const created = await createTaskApi(newTaskData);
+      setTasks((prev) => [created, ...prev]);
+      fetchActivities();
+      return created;
+    } catch (err: any) {
+      console.error('Failed to create task in database:', err);
+      throw err;
+    }
   };
 
-  const changeTaskStatus = (taskId: string, status: ClubTask['status']) => {
-    const result = updateTaskStatus(tasks, members, taskId, status);
-    setTasks(result.updatedTasks);
-    setMembers(result.updatedMembers);
-    const targetTask = tasks.find((t) => t.id === taskId);
-    if (targetTask) {
-      logActivity(
-        `Updated task status to ${status} for`,
-        targetTask.title,
-        'task'
-      );
+  /**
+   * Updates task status in PostgreSQL database through API
+   */
+  const changeTaskStatus = async (
+    taskId: string,
+    status: ClubTask['status']
+  ): Promise<void> => {
+    try {
+      const updated = await updateTaskStatusApi(taskId, status);
+      setTasks((prev) => prev.map((t) => (t.id === taskId ? updated : t)));
+      if (status === 'Completed') {
+        await Promise.allSettled([fetchMembers(), fetchCredits()]);
+      }
+      fetchActivities();
+    } catch (err: any) {
+      console.error('Failed to update task status in database:', err);
+      throw err;
     }
   };
 
@@ -490,18 +635,33 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
         logout,
         switchUserById,
         departments,
+        fetchDepartments,
         members,
         isLoadingMembers,
         membersError,
         fetchMembers,
+        viewingMember,
+        setViewingMember,
         events,
         isLoadingEvents,
         eventsError,
         fetchEvents,
         attendance,
+        isLoadingAttendance,
+        attendanceError,
+        fetchAttendance,
         credits,
+        isLoadingCredits,
+        creditsError,
+        fetchCredits,
         tasks,
+        isLoadingTasks,
+        tasksError,
+        fetchTasks,
         activities,
+        isLoadingActivities,
+        activitiesError,
+        fetchActivities,
         metrics,
         addMember,
         updateMember,
@@ -509,6 +669,7 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
         addEvent,
         updateEvent,
         deleteEvent,
+        changePassword,
         markAttendance,
         markAllPresentForEvent,
         adjustMemberCredits,

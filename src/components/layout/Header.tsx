@@ -26,6 +26,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
     currentUser,
     activities,
     logout,
+    setViewingMember,
   } = useClubStore();
 
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -172,6 +173,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
                 <button
                   type="button"
                   onClick={() => {
+                    setViewingMember(null);
                     setCurrentPage('profile');
                     setIsProfileMenuOpen(false);
                   }}

@@ -156,6 +156,13 @@ export class MembersController {
         return;
       }
 
+      // Privacy protection: Regular members viewing another peer's profile cannot see private logs
+      if (req.user?.role === UserRole.MEMBER && req.user.userId !== member.id) {
+        const { attendanceRecords, creditTransactions, assignedTasks, ...publicProfile } = member;
+        sendSuccess(res, formatMemberResponse(publicProfile));
+        return;
+      }
+
       sendSuccess(res, formatMemberResponse(member));
     } catch (err) {
       next(err);

@@ -7,9 +7,9 @@ import { UserRole } from '@prisma/client';
 const router = Router();
 
 router.get('/status', MembersController.status);
-router.get('/leaderboard', MembersController.getLeaderboard);
-router.get('/', MembersController.listMembers);
-router.get('/:id', MembersController.getMemberById);
+router.get('/leaderboard', requireAuth, MembersController.getLeaderboard);
+router.get('/', requireAuth, MembersController.listMembers);
+router.get('/:id', requireAuth, MembersController.getMemberById);
 
 // Protected routes requiring ADMIN or DEPARTMENT_HEAD authorization
 router.post(

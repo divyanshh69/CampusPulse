@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Eye, EyeOff, AlertCircle, Shield } from 'lucide-react';
 import { UserRole } from '../types';
 import { useClubStore } from '../hooks/useClubStore';
 import { Button } from '../components/ui/Button';
@@ -29,6 +30,7 @@ export const LoginPage: React.FC = () => {
   const [selectedRole, setSelectedRole] = useState<UserRole>('Admin');
   const [email, setEmail] = useState('elena.rostova@university.edu');
   const [password, setPassword] = useState('campusPulse123!');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -77,7 +79,7 @@ export const LoginPage: React.FC = () => {
           College Club Management Platform · Fall 2026 Semester
         </p>
 
-        <div className="mt-6 rounded-xl border border-slate-200 bg-white p-6">
+        <div className="mt-6 rounded-xl border border-slate-200 bg-white p-6 shadow-xs">
           <form onSubmit={handleSubmit} className="space-y-4" noValidate>
             <div>
               <label
@@ -109,29 +111,47 @@ export const LoginPage: React.FC = () => {
                 >
                   Password
                 </label>
-                <span className="text-xs text-slate-500 font-mono">Secured</span>
+                <span className="text-xs text-slate-500 font-mono flex items-center gap-1">
+                  <Shield className="h-3 w-3 text-emerald-600" />
+                  Secured
+                </span>
               </div>
-              <input
-                id="login-password"
-                type="password"
-                required
-                disabled={isSubmitting}
-                value={password}
-                onChange={(e) => {
-                  setPassword(e.target.value);
-                  setError('');
-                }}
-                placeholder="Enter your password"
-                className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none disabled:opacity-60"
-              />
+              <div className="relative mt-1.5">
+                <input
+                  id="login-password"
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  disabled={isSubmitting}
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setError('');
+                  }}
+                  placeholder="Enter your password"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2 pr-10 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none disabled:opacity-60"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer"
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
             </div>
 
             {error && (
               <div
                 role="alert"
-                className="rounded-lg bg-red-50 p-3 border border-red-200 text-xs font-medium text-red-700"
+                className="rounded-lg bg-rose-50 p-3 border border-rose-200 text-xs font-medium text-rose-700 flex items-center gap-2"
               >
-                ! {error}
+                <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
+                <span>{error}</span>
               </div>
             )}
 
@@ -140,9 +160,9 @@ export const LoginPage: React.FC = () => {
               variant="primary"
               size="lg"
               className="w-full"
-              disabled={isSubmitting}
+              isLoading={isSubmitting}
             >
-              {isSubmitting ? 'Signing in...' : 'Sign In to Workspace'}
+              Sign In to Workspace
             </Button>
           </form>
 
@@ -164,7 +184,7 @@ export const LoginPage: React.FC = () => {
                     onClick={() => handleSelectPreset(preset)}
                     className={`w-full rounded-lg border px-3.5 py-2.5 text-left transition-colors cursor-pointer ${
                       isSelected
-                        ? 'border-slate-900 bg-slate-50'
+                        ? 'border-slate-900 bg-slate-50 ring-1 ring-slate-900'
                         : 'border-slate-200 bg-white hover:bg-slate-50/60'
                     }`}
                   >

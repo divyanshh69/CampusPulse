@@ -1,4 +1,17 @@
-import { User, UserRole, DepartmentName, ClubEvent, EventStatus } from '../types';
+import {
+  User,
+  UserRole,
+  DepartmentName,
+  ClubEvent,
+  EventStatus,
+  Department,
+  AttendanceRecord,
+  AttendanceStatus,
+  CreditTransaction,
+  ClubTask,
+  TaskStatus,
+  ActivityLog,
+} from '../types';
 
 /**
  * Storage key for the authentication JWT.
@@ -425,5 +438,258 @@ export async function deleteEventApi(id: string): Promise<{ id: string }> {
     throw new Error(payload.message || 'Failed to delete event.');
   }
 
+  return payload.data;
+}
+
+/**
+ * Fetches real department records and member counts from PostgreSQL.
+ */
+export async function getDepartmentsApi(): Promise<Department[]> {
+  const res = await fetch('/api/departments', {
+    method: 'GET',
+    headers: getAuthHeaders(),
+  });
+
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to fetch departments from backend.');
+  }
+
+  return payload.data || [];
+}
+
+/**
+ * Updates authenticated user's account password.
+ */
+export async function changePasswordApi(
+  oldPassword: string,
+  newPassword: string
+): Promise<void> {
+  const res = await fetch('/api/auth/change-password', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ oldPassword, newPassword }),
+  });
+
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to update password.');
+  }
+}
+
+/**
+ * -------------------------------------------------------------
+ * Attendance API Service Functions
+ * -------------------------------------------------------------
+ */
+
+export async function getAllAttendanceApi(filters?: {
+  eventId?: string;
+  memberId?: string;
+}): Promise<AttendanceRecord[]> {
+  const params = new URLSearchParams();
+  if (filters?.eventId) params.append('eventId', filters.eventId);
+  if (filters?.memberId) params.append('memberId', filters.memberId);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+
+  const res = await fetch(`/api/attendance${qs}`, {
+    method: 'GET',
+    headers: getAuthHeaders(),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to fetch attendance records.');
+  }
+  return payload.data || [];
+}
+
+export async function getEventAttendanceApi(eventId: string): Promise<AttendanceRecord[]> {
+  const res = await fetch(`/api/attendance/event/${eventId}`, {
+    method: 'GET',
+    headers: getAuthHeaders(),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to fetch event attendance roster.');
+  }
+  return payload.data || [];
+}
+
+export async function markAttendanceApi(params: {
+  eventId: string;
+  memberId: string;
+  status: AttendanceStatus;
+  note?: string;
+}): Promise<AttendanceRecord & { attendancePercentage?: number }> {
+  const res = await fetch('/api/attendance/mark', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(params),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to mark attendance.');
+  }
+  return payload.data;
+}
+
+export async function markAllPresentApi(eventId: string): Promise<{ updatedCount: number }> {
+  const res = await fetch('/api/attendance/mark-all-present', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ eventId }),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to mark all members present.');
+  }
+  return payload.data;
+}
+
+/**
+ * -------------------------------------------------------------
+ * Credits API Service Functions
+ * -------------------------------------------------------------
+ */
+
+export async function getCreditTransactionsApi(filters?: {
+  memberId?: string;
+  limit?: number;
+}): Promise<CreditTransaction[]> {
+  const params = new URLSearchParams();
+  if (filters?.memberId) params.append('memberId', filters.memberId);
+  if (filters?.limit) params.append('limit', String(filters.limit));
+  const qs = params.toString() ? `?${params.toString()}` : '';
+
+  const res = await fetch(`/api/credits/transactions${qs}`, {
+    method: 'GET',
+    headers: getAuthHeaders(),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to fetch credit transactions.');
+  }
+  return payload.data || [];
+}
+
+export async function adjustCreditsApi(params: {
+  memberId: string;
+  delta: number;
+  reason: string;
+  category: CreditTransaction['category'];
+}): Promise<{ transaction: CreditTransaction; newBalance: number }> {
+  const res = await fetch('/api/credits/adjust', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(params),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to adjust member credits.');
+  }
+  return payload.data;
+}
+
+/**
+ * -------------------------------------------------------------
+ * Tasks API Service Functions
+ * -------------------------------------------------------------
+ */
+
+export async function getTasksApi(filters?: {
+  status?: string;
+  priority?: string;
+  departmentId?: string;
+  assignedToId?: string;
+}): Promise<ClubTask[]> {
+  const params = new URLSearchParams();
+  if (filters?.status && filters.status !== 'All') params.append('status', filters.status);
+  if (filters?.priority && filters.priority !== 'All') params.append('priority', filters.priority);
+  if (filters?.departmentId && filters.departmentId !== 'All') params.append('departmentId', filters.departmentId);
+  if (filters?.assignedToId) params.append('assignedToId', filters.assignedToId);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+
+  const res = await fetch(`/api/tasks${qs}`, {
+    method: 'GET',
+    headers: getAuthHeaders(),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to fetch tasks.');
+  }
+  return payload.data || [];
+}
+
+export async function createTaskApi(
+  task: Omit<ClubTask, 'id'>
+): Promise<ClubTask> {
+  const res = await fetch('/api/tasks', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(task),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to create task.');
+  }
+  return payload.data;
+}
+
+export async function updateTaskStatusApi(
+  taskId: string,
+  status: TaskStatus
+): Promise<ClubTask> {
+  const res = await fetch(`/api/tasks/${taskId}/status`, {
+    method: 'PATCH',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ status }),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to update task status.');
+  }
+  return payload.data;
+}
+
+/**
+ * -------------------------------------------------------------
+ * Activities API Service Functions
+ * -------------------------------------------------------------
+ */
+
+export async function getActivitiesApi(
+  limit = 30,
+  category?: string
+): Promise<ActivityLog[]> {
+  const params = new URLSearchParams();
+  if (limit) params.append('limit', String(limit));
+  if (category && category !== 'All') params.append('category', category);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+
+  const res = await fetch(`/api/activities${qs}`, {
+    method: 'GET',
+    headers: getAuthHeaders(),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to fetch activity logs.');
+  }
+  return payload.data || [];
+}
+
+export async function recordActivityApi(entry: {
+  action: string;
+  target: string;
+  category: ActivityLog['category'];
+}): Promise<ActivityLog> {
+  const res = await fetch('/api/activities', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(entry),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to record activity log.');
+  }
   return payload.data;
 }

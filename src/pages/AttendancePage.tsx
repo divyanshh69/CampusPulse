@@ -1,11 +1,12 @@
-import React, { useState, useMemo } from 'react';
-import { CheckCheck } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { CheckCheck, AlertTriangle } from 'lucide-react';
 import { AttendanceStatus, DepartmentName } from '../types';
 import { ALL_DEPARTMENTS, useClubStore } from '../hooks/useClubStore';
 import { getEventAttendanceSummary, canManageDepartment } from '../utils/clubLogic';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { StatCard } from '../components/ui/StatCard';
+import { Modal } from '../components/ui/Modal';
 
 export const AttendancePage: React.FC = () => {
   const {
@@ -17,14 +18,36 @@ export const AttendancePage: React.FC = () => {
     markAllPresentForEvent,
   } = useClubStore();
 
-  const [selectedEventId, setSelectedEventId] = useState<string>('evt-2');
+  const [selectedEventId, setSelectedEventId] = useState<string>(events[0]?.id || '');
   const [deptFilter, setDeptFilter] = useState<DepartmentName | 'All'>('All');
+  const [isConfirmAllOpen, setIsConfirmAllOpen] = useState(false);
+
+  useEffect(() => {
+    if (events.length > 0 && (!selectedEventId || !events.some((e) => e.id === selectedEventId))) {
+      setSelectedEventId(events[0].id);
+    }
+  }, [events, selectedEventId]);
 
   const selectedEvent =
-    events.find((e) => e.id === selectedEventId) || events[0];
+    events.find((e) => e.id === selectedEventId) || events[0] || {
+      id: '',
+      title: 'No Event',
+      date: '',
+      time: '',
+      location: '',
+      status: 'Upcoming',
+      department: 'Technical & Engineering',
+      creditReward: 0,
+    };
 
   const summary = useMemo(
-    () => getEventAttendanceSummary(attendance, members, selectedEvent.id),
+    () => (selectedEvent.id ? getEventAttendanceSummary(attendance, members, selectedEvent.id) : {
+      presentRate: 0,
+      presentCount: 0,
+      excusedCount: 0,
+      absentCount: 0,
+      totalMarked: 0,
+    }),
     [attendance, members, selectedEvent.id]
   );
 
@@ -48,10 +71,26 @@ export const AttendancePage: React.FC = () => {
     return rec ? rec.status : 'Present';
   };
 
+  const [isMarkingAll, setIsMarkingAll] = useState(false);
+
+  const handleConfirmMarkAll = async () => {
+    if (selectedEvent.id) {
+      setIsMarkingAll(true);
+      try {
+        await markAllPresentForEvent(selectedEvent.id);
+      } catch (err) {
+        console.error('Failed to mark all present:', err);
+      } finally {
+        setIsMarkingAll(false);
+      }
+    }
+    setIsConfirmAllOpen(false);
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Bar: Event Selector & Bulk Action */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-5">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
         <div className="flex-1 max-w-xl">
           <label
             htmlFor="attendance-event-select"
@@ -101,14 +140,50 @@ export const AttendancePage: React.FC = () => {
           <Button
             variant="primary"
             size="md"
-            disabled={!hasEditAccess}
-            onClick={() => markAllPresentForEvent(selectedEvent.id)}
+            disabled={!hasEditAccess || !selectedEvent.id}
+            onClick={() => setIsConfirmAllOpen(true)}
           >
             <CheckCheck className="h-4 w-4" />
             <span>Mark All Present</span>
           </Button>
         </div>
       </div>
+
+      {/* Confirmation Modal for Bulk Attendance */}
+      <Modal
+        isOpen={isConfirmAllOpen}
+        onClose={() => setIsConfirmAllOpen(false)}
+        title="Confirm Bulk Attendance Check-In"
+        subtitle={`Apply 'Present' status to all registered members for ${selectedEvent.title}.`}
+      >
+        <div className="space-y-4">
+          <div className="rounded-lg bg-amber-50 p-4 border border-amber-200 text-xs text-amber-800 flex items-start gap-3">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
+            <p>
+              This action will set the attendance status of all{' '}
+              <strong>{visibleMembers.length} active club members</strong> to{' '}
+              <strong>Present</strong> for <em>{selectedEvent.title}</em>. Any previously recorded Excused or Absent marks will be overwritten.
+            </p>
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsConfirmAllOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleConfirmMarkAll}
+            >
+              Confirm & Mark Present
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Event Attendance Summary KPI Row */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -211,7 +286,7 @@ export const AttendancePage: React.FC = () => {
                       {member.attendancePercentage}%
                     </td>
                     <td className="px-5 py-3">
-                      <Badge tone={statusTone}>{status}</Badge>
+                      <Badge tone={statusTone} withDot>{status}</Badge>
                     </td>
                     <td className="px-5 py-3 text-right">
                       <div className="inline-flex items-center gap-1 rounded-lg bg-slate-100 p-1">
@@ -231,14 +306,14 @@ export const AttendancePage: React.FC = () => {
                                     option
                                   )
                                 }
-                                className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer disabled:opacity-50 ${
+                                className={`rounded-md px-2.5 py-1 text-xs font-medium transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${
                                   isActive
                                     ? option === 'Present'
-                                      ? 'bg-emerald-700 text-white'
+                                      ? 'bg-emerald-600 text-white shadow-xs'
                                       : option === 'Excused'
-                                      ? 'bg-amber-600 text-white'
-                                      : 'bg-red-600 text-white'
-                                    : 'text-slate-600 hover:text-slate-900'
+                                      ? 'bg-amber-600 text-white shadow-xs'
+                                      : 'bg-rose-600 text-white shadow-xs'
+                                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
                                 }`}
                               >
                                 {option}

@@ -7,7 +7,7 @@ import { UserRole } from '@prisma/client';
 const router = Router();
 
 router.get('/status', TasksController.status);
-router.get('/', TasksController.listTasks);
+router.get('/', requireAuth, TasksController.listTasks);
 router.post(
   '/',
   requireAuth,

@@ -1,6 +1,7 @@
 import React from 'react';
 import { User } from '../../types';
 import { Badge } from './Badge';
+import { Button } from './Button';
 
 interface MemberCardProps {
   member: User;
@@ -36,21 +37,28 @@ export const MemberCard: React.FC<MemberCardProps> = ({
       ? 'warning'
       : 'neutral';
 
+  const roleTone =
+    member.role === 'Admin'
+      ? 'brand'
+      : member.role === 'Department Head'
+      ? 'info'
+      : 'neutral';
+
   return (
-    <div className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 hover:border-slate-300 transition-colors">
+    <div className="card-base card-hover p-5 flex flex-col justify-between">
       <div>
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-900 text-xs font-semibold text-white font-mono">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-900 text-xs font-semibold text-white font-mono shadow-xs">
               {initials}
             </div>
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <h3 className="text-sm font-semibold text-slate-900 truncate">
                   {member.name}
                 </h3>
                 {member.status !== 'Active' && (
-                  <Badge tone={statusTone} className="text-[10px]">
+                  <Badge tone={statusTone} withDot className="text-[10px]">
                     {member.status}
                   </Badge>
                 )}
@@ -58,21 +66,21 @@ export const MemberCard: React.FC<MemberCardProps> = ({
               <p className="text-xs text-slate-500 truncate">{member.email}</p>
             </div>
           </div>
-          <span className="text-xs font-mono text-slate-400 shrink-0">
+          <span className="text-[11px] font-mono text-slate-500 shrink-0 font-medium">
             {member.studentId}
           </span>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-1.5 text-xs text-slate-600">
-          <span className="font-medium text-slate-800">{member.role}</span>
-          <span aria-hidden="true">·</span>
-          <span>{member.department}</span>
-          <span aria-hidden="true">·</span>
-          <span>{member.academicYear}</span>
+        <div className="mt-3.5 flex flex-wrap items-center gap-1.5 text-xs">
+          <Badge tone={roleTone}>{member.role}</Badge>
+          <span className="text-slate-300" aria-hidden="true">·</span>
+          <span className="text-slate-700 font-medium">{member.department}</span>
+          <span className="text-slate-300" aria-hidden="true">·</span>
+          <span className="text-slate-500">{member.academicYear}</span>
         </div>
 
         {member.bio && (
-          <p className="mt-3 text-xs text-slate-500 line-clamp-2 leading-relaxed">
+          <p className="mt-3 text-xs text-slate-600 line-clamp-2 leading-relaxed bg-slate-50 p-2 rounded-md border border-slate-100">
             {member.bio}
           </p>
         )}
@@ -80,41 +88,39 @@ export const MemberCard: React.FC<MemberCardProps> = ({
 
       <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-xs">
         <div className="flex items-center gap-3">
-          <div>
-            <span className="text-slate-400">Attendance: </span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-500">Attn:</span>
             <Badge tone={attendanceTone} className="font-mono tabular-nums">
               {member.attendancePercentage}%
             </Badge>
           </div>
-          <span className="text-slate-300" aria-hidden="true">
-            |
-          </span>
-          <div>
-            <span className="text-slate-400">Credits: </span>
+          <span className="text-slate-200" aria-hidden="true">|</span>
+          <div className="flex items-center gap-1">
+            <span className="text-slate-500">Credits:</span>
             <span className="font-semibold text-slate-900 font-mono tabular-nums">
               {member.totalCredits}
             </span>
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-1.5">
           {canEdit && onEdit && (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="xs"
               onClick={() => onEdit(member)}
-              className="text-xs font-medium text-indigo-600 hover:text-indigo-800 underline underline-offset-2 cursor-pointer"
             >
               Edit
-            </button>
+            </Button>
           )}
           {onSelect && (
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              size="xs"
               onClick={() => onSelect(member)}
-              className="text-xs font-medium text-slate-700 hover:text-slate-950 underline underline-offset-2 cursor-pointer"
             >
-              Inspect
-            </button>
+              Profile
+            </Button>
           )}
         </div>
       </div>

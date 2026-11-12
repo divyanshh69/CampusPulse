@@ -7,8 +7,8 @@ import { UserRole } from '@prisma/client';
 const router = Router();
 
 router.get('/status', CreditsController.status);
-router.get('/transactions', CreditsController.listTransactions);
-router.get('/', CreditsController.listTransactions);
+router.get('/transactions', requireAuth, CreditsController.listTransactions);
+router.get('/', requireAuth, CreditsController.listTransactions);
 router.post(
   '/adjust',
   requireAuth,

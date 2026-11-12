@@ -7,6 +7,15 @@ import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 export function createApp(): Application {
   const app = express();
 
+  // Explicit proxy trust configuration (prevents client IP header spoofing)
+  if (process.env.TRUST_PROXY) {
+    app.set('trust proxy', process.env.TRUST_PROXY);
+  } else if (config.nodeEnv === 'development') {
+    app.set('trust proxy', 'loopback');
+  } else {
+    app.set('trust proxy', false);
+  }
+
   // CORS configuration
   app.use(
     cors({

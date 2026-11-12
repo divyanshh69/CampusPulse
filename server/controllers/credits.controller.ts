@@ -1,7 +1,34 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../db/prisma';
 import { sendSuccess, sendError } from '../utils/apiResponse';
-import { CreditCategory } from '@prisma/client';
+import { CreditCategory, ActivityCategory, UserRole } from '@prisma/client';
+
+function mapCreditCategory(input: any): CreditCategory {
+  if (!input) return CreditCategory.TASK_COMPLETION;
+  const str = String(input).trim().toUpperCase().replace(/[\s\/-]/g, '_');
+  if (str.includes('LEADERSHIP')) return CreditCategory.LEADERSHIP_BONUS;
+  if (str.includes('PENALTY') || str.includes('DEDUCTION')) return CreditCategory.PENALTY_DEDUCTION;
+  if (str.includes('PEER')) return CreditCategory.PEER_RECOGNITION;
+  if (str.includes('ATTENDANCE')) return CreditCategory.EVENT_ATTENDANCE;
+  if (str.includes('TASK')) return CreditCategory.TASK_COMPLETION;
+  return CreditCategory.TASK_COMPLETION;
+}
+
+function formatCreditCategory(cat: CreditCategory): string {
+  switch (cat) {
+    case CreditCategory.LEADERSHIP_BONUS:
+      return 'Leadership Bonus';
+    case CreditCategory.PENALTY_DEDUCTION:
+      return 'Penalty / Deduction';
+    case CreditCategory.PEER_RECOGNITION:
+      return 'Peer Recognition';
+    case CreditCategory.EVENT_ATTENDANCE:
+      return 'Event Attendance';
+    case CreditCategory.TASK_COMPLETION:
+    default:
+      return 'Task Completion';
+  }
+}
 
 export class CreditsController {
   /**
@@ -13,14 +40,13 @@ export class CreditsController {
       status: 'initialized',
       endpoints: [
         'GET /api/credits/transactions',
-        'GET /api/credits/member/:memberId',
         'POST /api/credits/adjust',
       ],
     });
   }
 
   /**
-   * List recent credit transactions
+   * List credit transactions with role-based visibility scoping
    */
   static async listTransactions(
     req: Request,
@@ -28,11 +54,30 @@ export class CreditsController {
     next: NextFunction
   ): Promise<void> {
     try {
-      const { limit = '50', memberId } = req.query;
+      const user = req.user;
+      if (!user) {
+        sendError(res, 'Authentication required to view credit ledger.', 401);
+        return;
+      }
 
+      const { limit = '100', memberId } = req.query;
       const where: any = {};
-      if (memberId && typeof memberId === 'string') {
-        where.memberId = memberId;
+
+      // Role-based visibility enforcement
+      if (user.role === UserRole.MEMBER) {
+        // Members may only see their own credit transactions
+        where.memberId = user.userId;
+      } else if (user.role === UserRole.DEPARTMENT_HEAD) {
+        // Department heads may see transactions for members in their department
+        where.member = { departmentId: user.departmentId };
+        if (memberId && typeof memberId === 'string') {
+          where.memberId = memberId;
+        }
+      } else if (user.role === UserRole.ADMIN) {
+        // Admins can see all transactions or filter by member
+        if (memberId && typeof memberId === 'string') {
+          where.memberId = memberId;
+        }
       }
 
       const transactions = await prisma.creditTransaction.findMany({
@@ -57,8 +102,11 @@ export class CreditsController {
         memberDepartment: t.member.department.name,
         delta: t.delta,
         reason: t.reason,
-        category: t.category,
-        timestamp: t.timestamp.toISOString(),
+        category: formatCreditCategory(t.category),
+        timestamp:
+          t.timestamp instanceof Date
+            ? t.timestamp.toISOString().slice(0, 16).replace('T', ' ')
+            : String(t.timestamp),
         issuedBy: t.issuedBy,
       }));
 
@@ -69,7 +117,7 @@ export class CreditsController {
   }
 
   /**
-   * Adjust member credits (award or penalty)
+   * Adjust member credits (award or penalty) with RBAC and department scoping
    */
   static async adjustCredits(
     req: Request,
@@ -77,6 +125,12 @@ export class CreditsController {
     next: NextFunction
   ): Promise<void> {
     try {
+      const user = req.user;
+      if (!user) {
+        sendError(res, 'Authentication required.', 401);
+        return;
+      }
+
       const { memberId, delta, reason, category } = req.body;
 
       if (!memberId || delta === undefined || !reason || !category) {
@@ -94,10 +148,74 @@ export class CreditsController {
         return;
       }
 
-      const issuedBy = req.user?.name || 'Administrator';
-      const issuerId = req.user?.userId;
+      if (Math.abs(numericDelta) > 1000) {
+        sendError(res, 'Delta exceeds the permitted range (-1000 to +1000).', 400);
+        return;
+      }
 
-      // Atomic transaction: update member totalCredits and record transaction
+      // Verify target member exists
+      const targetMember = await prisma.user.findUnique({
+        where: { id: memberId },
+        include: { department: true },
+      });
+
+      if (!targetMember) {
+        sendError(res, 'Member not found.', 404);
+        return;
+      }
+
+      // Authorization policy:
+      // - Admin: May adjust credits across all departments.
+      // - Department Head: May adjust credits only for members belonging to their assigned department.
+      //   Must not be able to award or deduct credits from themselves.
+      // - Member: Forbidden.
+      if (user.role === UserRole.DEPARTMENT_HEAD) {
+        if (memberId === user.userId) {
+          sendError(
+            res,
+            'Forbidden: Department Heads cannot award or deduct credits from their own account.',
+            403
+          );
+          return;
+        }
+
+        if (targetMember.departmentId !== user.departmentId) {
+          sendError(
+            res,
+            'Forbidden: Department Heads can only adjust credits for members within their own department.',
+            403
+          );
+          return;
+        }
+
+        if (targetMember.role === UserRole.ADMIN) {
+          sendError(
+            res,
+            'Forbidden: Department Heads cannot adjust credits for Admin accounts.',
+            403
+          );
+          return;
+        }
+      } else if (user.role !== UserRole.ADMIN) {
+        sendError(res, 'Forbidden: Regular members cannot adjust credits.', 403);
+        return;
+      }
+
+      // Prevent negative total credit balances
+      if (targetMember.totalCredits + numericDelta < 0) {
+        sendError(
+          res,
+          `Cannot deduct ${Math.abs(numericDelta)} credits. Member balance cannot fall below 0 (current balance: ${targetMember.totalCredits} cr).`,
+          400
+        );
+        return;
+      }
+
+      const issuedBy = user.name || 'Administrator';
+      const issuerId = user.userId;
+      const mappedCategory = mapCreditCategory(category);
+
+      // Atomic transaction: update member totalCredits, record transaction, and log activity
       const [updatedMember, transaction] = await prisma.$transaction([
         prisma.user.update({
           where: { id: memberId },
@@ -113,9 +231,19 @@ export class CreditsController {
             memberId,
             delta: numericDelta,
             reason: reason.trim(),
-            category: category as CreditCategory,
+            category: mappedCategory,
             issuedBy,
             issuerId,
+          },
+        }),
+        prisma.activityLog.create({
+          data: {
+            actorId: user.userId,
+            actorName: user.name || 'Administrator',
+            actorRole: user.role === UserRole.ADMIN ? 'Admin' : 'Department Head',
+            action: `Recorded ${numericDelta > 0 ? '+' : ''}${numericDelta} credits for`,
+            target: `${targetMember.name} (${reason.trim()})`,
+            category: ActivityCategory.CREDIT,
           },
         }),
       ]);
@@ -123,7 +251,17 @@ export class CreditsController {
       sendSuccess(
         res,
         {
-          transaction,
+          transaction: {
+            id: transaction.id,
+            memberId: transaction.memberId,
+            memberName: updatedMember.name,
+            memberDepartment: updatedMember.department.name,
+            delta: transaction.delta,
+            reason: transaction.reason,
+            category: formatCreditCategory(transaction.category),
+            timestamp: transaction.timestamp.toISOString().slice(0, 16).replace('T', ' '),
+            issuedBy: transaction.issuedBy,
+          },
           newBalance: updatedMember.totalCredits,
         },
         'Credits successfully adjusted.'
@@ -133,4 +271,3 @@ export class CreditsController {
     }
   }
 }
-

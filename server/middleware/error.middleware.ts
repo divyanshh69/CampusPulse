@@ -15,6 +15,7 @@ export function notFoundHandler(req: Request, res: Response): void {
 
 /**
  * Global centralized error-handling middleware
+ * Safely sanitizes errors for client responses while preserving server logs.
  */
 export function errorHandler(
   err: any,
@@ -22,17 +23,52 @@ export function errorHandler(
   res: Response,
   _next: NextFunction
 ): void {
-  console.error('Unhandled Server Error:', err);
+  // Preserve full server-side diagnostic logging
+  console.error('[SERVER ERROR]', err);
 
-  const statusCode = err.status || err.statusCode || 500;
-  const message =
-    err.message || 'An unexpected internal server error occurred.';
-
-  const payload: any = {};
-  if (config.nodeEnv === 'development') {
-    payload.stack = err.stack;
+  // Handle Prisma Validation Errors safely
+  if (err?.name === 'PrismaClientValidationError') {
+    sendError(
+      res,
+      'Invalid request payload or unrecognized schema parameter.',
+      400
+    );
+    return;
   }
 
-  sendError(res, message, statusCode, Object.keys(payload).length ? payload : undefined);
+  // Handle Prisma Known Database Request Errors
+  if (err?.name === 'PrismaClientKnownRequestError') {
+    if (err.code === 'P2002') {
+      sendError(res, 'A record with these unique details already exists.', 409);
+      return;
+    }
+    if (err.code === 'P2025') {
+      sendError(res, 'The requested resource could not be found.', 404);
+      return;
+    }
+    sendError(res, 'Database operation could not be completed.', 400);
+    return;
+  }
+
+  // Handle JWT & Auth errors
+  if (err?.name === 'JsonWebTokenError' || err?.name === 'TokenExpiredError') {
+    sendError(res, 'Authentication token is invalid or has expired.', 401);
+    return;
+  }
+
+  const statusCode =
+    typeof err?.status === 'number'
+      ? err.status
+      : typeof err?.statusCode === 'number'
+      ? err.statusCode
+      : 500;
+
+  // Never expose server file paths or database stack traces in client response
+  const clientMessage =
+    statusCode >= 500
+      ? 'An internal server error occurred. Please try again later.'
+      : err?.message || 'Request could not be processed.';
+
+  sendError(res, clientMessage, statusCode);
 }
 

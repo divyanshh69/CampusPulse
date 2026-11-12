@@ -68,16 +68,16 @@ export const DashboardPage: React.FC = () => {
         <StatCard
           label="Total Members"
           value={metrics.totalMembers}
-          delta="+2 this month"
+          delta={`${metrics.activeMembers} active`}
           deltaTone="positive"
-          subtext="Across 5 active departments"
+          subtext={`Across ${departments.length} club departments`}
         />
         <StatCard
           label="Upcoming Events"
           value={metrics.upcomingEventsCount}
-          delta="Nov 2026"
-          deltaTone="neutral"
-          subtext="Workshops, mixers & general body"
+          delta={metrics.upcomingEventsCount > 0 ? `${metrics.upcomingEventsCount} scheduled` : 'None pending'}
+          deltaTone={metrics.upcomingEventsCount > 0 ? 'positive' : 'neutral'}
+          subtext="Workshops, mixers & sessions"
         />
         <StatCard
           label="Average Attendance"
@@ -87,57 +87,87 @@ export const DashboardPage: React.FC = () => {
           subtext="Club-wide semester participation"
         />
         <StatCard
-          label="Total Credits Distributed"
-          value={metrics.totalCreditsDistributed.toLocaleString()}
-          delta="+120 this week"
+          label="Credits Distributed"
+          value={`${metrics.totalCreditsDistributed.toLocaleString()} cr`}
+          delta="Merit ledger"
           deltaTone="positive"
-          subtext="Cumulative member merit ledger"
+          subtext="Recognized contributions"
         />
       </section>
 
       {/* Quick Actions Strip */}
-      <section aria-label="Quick actions" className="rounded-xl border border-slate-200 bg-white p-5">
+      <section aria-label="Quick operations" className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h3 className="text-sm font-semibold text-slate-900 font-display">
               Quick Operations
             </h3>
             <p className="text-xs text-slate-500">
-              Jump directly to member onboarding, event check-ins, credit distribution, or task assignments.
+              {currentUser.role === 'Member'
+                ? 'Quickly jump to your profile, assigned tasks, or explore upcoming club events.'
+                : 'Directly manage member rosters, record event check-ins, award credits, or assign tasks.'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setCurrentPage('members')}
-            >
-              <UserPlus className="h-3.5 w-3.5" />
-              <span>Add Member</span>
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setCurrentPage('attendance')}
-            >
-              <UserCheck className="h-3.5 w-3.5" />
-              <span>Mark Roster</span>
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setCurrentPage('credits')}
-            >
-              <Award className="h-3.5 w-3.5" />
-              <span>Award Credits</span>
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setCurrentPage('tasks')}
-            >
-              <span>Manage Tasks</span>
-            </Button>
+            {currentUser.role !== 'Member' ? (
+              <>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setCurrentPage('members')}
+                >
+                  <UserPlus className="h-3.5 w-3.5" />
+                  <span>Add Member</span>
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setCurrentPage('attendance')}
+                >
+                  <UserCheck className="h-3.5 w-3.5" />
+                  <span>Mark Roster</span>
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setCurrentPage('credits')}
+                >
+                  <Award className="h-3.5 w-3.5" />
+                  <span>Award Credits</span>
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setCurrentPage('tasks')}
+                >
+                  <span>Manage Tasks</span>
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setCurrentPage('profile')}
+                >
+                  <span>My Profile</span>
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setCurrentPage('tasks')}
+                >
+                  <span>My Tasks</span>
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setCurrentPage('events')}
+                >
+                  <span>Browse Events</span>
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </section>

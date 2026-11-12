@@ -40,9 +40,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isOpenMobile,
   onCloseMobile,
 }) => {
-  const { currentPage, setCurrentPage, currentUser, logout } = useClubStore();
+  const { currentPage, setCurrentPage, currentUser, logout, setViewingMember } = useClubStore();
 
   const handleNavigate = (page: PageRoute) => {
+    if (page === 'profile') {
+      setViewingMember(null);
+    }
     setCurrentPage(page);
     onCloseMobile();
   };

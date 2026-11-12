@@ -20,6 +20,7 @@ export const MembersPage: React.FC = () => {
     updateMember,
     deactivateMember,
     setCurrentPage,
+    setViewingMember,
   } = useClubStore();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -194,7 +195,8 @@ export const MembersPage: React.FC = () => {
     }
   };
 
-  const handleInspectMember = (_member: User) => {
+  const handleInspectMember = (member: User) => {
+    setViewingMember(member);
     setCurrentPage('profile');
   };
 
@@ -240,7 +242,7 @@ export const MembersPage: React.FC = () => {
         <Badge
           tone={
             m.role === 'Admin'
-              ? 'danger'
+              ? 'brand'
               : m.role === 'Department Head'
               ? 'info'
               : 'neutral'

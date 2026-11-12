@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { Award, Trophy } from 'lucide-react';
 import { CreditTransaction } from '../types';
 import { useClubStore } from '../hooks/useClubStore';
 import { getLeaderboard } from '../utils/clubLogic';
@@ -6,7 +7,14 @@ import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 
 export const CreditsPage: React.FC = () => {
-  const { members, credits, adjustMemberCredits } = useClubStore();
+  const {
+    members,
+    credits,
+    adjustMemberCredits,
+    currentUser,
+    setCurrentPage,
+    setViewingMember,
+  } = useClubStore();
 
   const [selectedMemberId, setSelectedMemberId] = useState<string>(
     members[0]?.id || 'usr-1'
@@ -21,8 +29,15 @@ export const CreditsPage: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string>('');
 
   const leaderboard = useMemo(() => getLeaderboard(members), [members]);
+  const canAdjustCredits =
+    currentUser.role === 'Admin' || currentUser.role === 'Department Head';
 
-  const handleAdjustCredits = (e: React.FormEvent) => {
+  const myRankIndex = leaderboard.findIndex((m) => m.id === currentUser.id);
+  const myRank = myRankIndex !== -1 ? myRankIndex + 1 : null;
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleAdjustCredits = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!reason.trim()) {
       setErrorMessage('Please enter a specific reason for this credit adjustment.');
@@ -40,21 +55,30 @@ export const CreditsPage: React.FC = () => {
     const effectiveCategory =
       operation === 'deduct' ? 'Penalty / Deduction' : category;
 
-    adjustMemberCredits({
-      memberId: selectedMemberId,
-      delta: signedDelta,
-      reason: reason.trim(),
-      category: effectiveCategory,
-    });
-
-    const target = members.find((m) => m.id === selectedMemberId);
-    setReason('');
+    setIsSubmitting(true);
     setErrorMessage('');
-    setFeedbackMessage(
-      `${operation === 'award' ? 'Awarded' : 'Deducted'} ${cleanAmount} credits ${
-        operation === 'award' ? 'to' : 'from'
-      } ${target?.name || 'member'}.`
-    );
+    setFeedbackMessage('');
+
+    try {
+      await adjustMemberCredits({
+        memberId: selectedMemberId,
+        delta: signedDelta,
+        reason: reason.trim(),
+        category: effectiveCategory,
+      });
+
+      const target = members.find((m) => m.id === selectedMemberId);
+      setReason('');
+      setFeedbackMessage(
+        `${operation === 'award' ? 'Awarded' : 'Deducted'} ${cleanAmount} credits ${
+          operation === 'award' ? 'to' : 'from'
+        } ${target?.name || 'member'}.`
+      );
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to adjust credits.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -111,18 +135,55 @@ export const CreditsPage: React.FC = () => {
               <tbody className="divide-y divide-slate-200/80">
                 {leaderboard.map((member, index) => {
                   const rank = index + 1;
+                  const isTop1 = rank === 1;
+                  const isTop2 = rank === 2;
+                  const isTop3 = rank === 3;
+                  const isCurrentUser = member.id === currentUser.id;
+
                   return (
                     <tr
                       key={member.id}
-                      className="hover:bg-slate-50/70 transition-colors"
+                      className={`transition-colors ${
+                        isCurrentUser
+                          ? 'bg-amber-50/40 hover:bg-amber-50/70'
+                          : 'hover:bg-slate-50/70'
+                      }`}
                     >
-                      <td className="px-4 py-3 font-mono tabular-nums text-xs font-semibold text-slate-500">
-                        #{rank.toString().padStart(2, '0')}
+                      <td className="px-4 py-3 font-mono tabular-nums text-xs font-semibold">
+                        {isTop1 ? (
+                          <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-amber-100 text-amber-800 font-bold text-xs ring-1 ring-amber-300">
+                            1
+                          </span>
+                        ) : isTop2 ? (
+                          <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-slate-200 text-slate-800 font-bold text-xs ring-1 ring-slate-300">
+                            2
+                          </span>
+                        ) : isTop3 ? (
+                          <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-amber-50 text-amber-900 font-bold text-xs ring-1 ring-amber-200">
+                            3
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">
+                            #{rank.toString().padStart(2, '0')}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
-                        <div className="font-semibold text-slate-900">
-                          {member.name}
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setViewingMember(member);
+                            setCurrentPage('profile');
+                          }}
+                          className="text-left font-semibold text-slate-900 hover:text-slate-700 underline underline-offset-2 cursor-pointer flex items-center gap-1.5"
+                        >
+                          <span>{member.name}</span>
+                          {isCurrentUser && (
+                            <span className="rounded-xs bg-slate-900 px-1.5 py-0.5 text-[10px] font-medium text-white font-sans no-underline">
+                              You
+                            </span>
+                          )}
+                        </button>
                         <div className="text-[11px] text-slate-500">
                           {member.role}
                         </div>
@@ -144,170 +205,208 @@ export const CreditsPage: React.FC = () => {
           </div>
         </section>
 
-        {/* Right 5 Cols: Add/Deduct Credits Form + Recent Credit Activity */}
+        {/* Right 5 Cols: Add/Deduct Credits Form OR Personal Standing + Recent Credit Activity */}
         <div className="lg:col-span-5 space-y-6">
-          {/* Issue / Deduct Credits Card */}
-          <section className="rounded-xl border border-slate-200 bg-white p-5">
-            <h3 className="text-sm font-semibold text-slate-900 font-display">
-              Award or Deduct Member Credits
-            </h3>
-            <p className="mt-0.5 text-xs text-slate-500">
-              Record merit points for event leadership, task completion, or unexcused absences.
-            </p>
+          {/* Issue / Deduct Credits Card (Admin / Dept Head) */}
+          {canAdjustCredits ? (
+            <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
+              <h3 className="text-sm font-semibold text-slate-900 font-display">
+                Award or Deduct Member Credits
+              </h3>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Record merit points for event leadership, task completion, or unexcused absences.
+              </p>
 
-            <form
-              onSubmit={handleAdjustCredits}
-              className="mt-4 space-y-4"
-              noValidate
-            >
-              {/* Operation Toggle */}
-              <div>
-                <span className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Adjustment Type
-                </span>
-                <div className="grid grid-cols-2 gap-2 rounded-lg bg-slate-100 p-1">
-                  <button
-                    type="button"
-                    onClick={() => setOperation('award')}
-                    className={`rounded-md py-1.5 text-xs font-medium transition-colors cursor-pointer ${
-                      operation === 'award'
-                        ? 'bg-white text-emerald-700 shadow-xs font-semibold'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    + Award Credits
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setOperation('deduct')}
-                    className={`rounded-md py-1.5 text-xs font-medium transition-colors cursor-pointer ${
-                      operation === 'deduct'
-                        ? 'bg-white text-red-700 shadow-xs font-semibold'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    - Deduct Credits
-                  </button>
+              <form
+                onSubmit={handleAdjustCredits}
+                className="mt-4 space-y-4"
+                noValidate
+              >
+                {/* Operation Toggle */}
+                <div>
+                  <span className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Adjustment Type
+                  </span>
+                  <div className="grid grid-cols-2 gap-2 rounded-lg bg-slate-100 p-1">
+                    <button
+                      type="button"
+                      onClick={() => setOperation('award')}
+                      className={`rounded-md py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                        operation === 'award'
+                          ? 'bg-white text-emerald-700 shadow-xs font-semibold'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      + Award Credits
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setOperation('deduct')}
+                      className={`rounded-md py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                        operation === 'deduct'
+                          ? 'bg-white text-rose-700 shadow-xs font-semibold'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      - Deduct Credits
+                    </button>
+                  </div>
                 </div>
-              </div>
 
-              {/* Target Member */}
-              <div>
-                <label
-                  htmlFor="credit-member-select"
-                  className="block text-xs font-semibold text-slate-700"
-                >
-                  Select Member
-                </label>
-                <select
-                  id="credit-member-select"
-                  value={selectedMemberId}
-                  onChange={(e) => setSelectedMemberId(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-slate-900 focus:outline-none"
-                >
-                  {members.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name} ({m.department} — {m.totalCredits} cr)
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
+                {/* Target Member */}
                 <div>
                   <label
-                    htmlFor="credit-amount-input"
+                    htmlFor="credit-member-select"
                     className="block text-xs font-semibold text-slate-700"
                   >
-                    Credit Amount
+                    Select Member
+                  </label>
+                  <select
+                    id="credit-member-select"
+                    value={selectedMemberId}
+                    onChange={(e) => setSelectedMemberId(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-slate-900 focus:outline-none"
+                  >
+                    {members.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name} ({m.department} — {m.totalCredits} cr)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label
+                      htmlFor="credit-amount-input"
+                      className="block text-xs font-semibold text-slate-700"
+                    >
+                      Credit Amount
+                    </label>
+                    <input
+                      id="credit-amount-input"
+                      type="number"
+                      min={1}
+                      max={200}
+                      value={amount}
+                      onChange={(e) => setAmount(Number(e.target.value))}
+                      className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-mono text-slate-900 focus:border-slate-900 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="credit-category-select"
+                      className="block text-xs font-semibold text-slate-700"
+                    >
+                      Category
+                    </label>
+                    <select
+                      id="credit-category-select"
+                      value={
+                        operation === 'deduct' ? 'Penalty / Deduction' : category
+                      }
+                      disabled={operation === 'deduct'}
+                      onChange={(e) =>
+                        setCategory(
+                          e.target.value as CreditTransaction['category']
+                        )
+                      }
+                      className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-slate-900 focus:outline-none disabled:bg-slate-50"
+                    >
+                      <option value="Task Completion">Task Completion</option>
+                      <option value="Event Attendance">Event Attendance</option>
+                      <option value="Leadership Bonus">Leadership Bonus</option>
+                      <option value="Peer Recognition">Peer Recognition</option>
+                      <option value="Penalty / Deduction">
+                        Penalty / Deduction
+                      </option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="credit-reason-input"
+                    className="block text-xs font-semibold text-slate-700"
+                  >
+                    Reason for Adjustment
                   </label>
                   <input
-                    id="credit-amount-input"
-                    type="number"
-                    min={1}
-                    max={200}
-                    value={amount}
-                    onChange={(e) => setAmount(Number(e.target.value))}
-                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-mono text-slate-900 focus:border-slate-900 focus:outline-none"
+                    id="credit-reason-input"
+                    type="text"
+                    required
+                    value={reason}
+                    onChange={(e) => {
+                      setReason(e.target.value);
+                      setErrorMessage('');
+                    }}
+                    placeholder="e.g. Organized Technical workshop materials"
+                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none"
                   />
                 </div>
 
+                {errorMessage && (
+                  <p role="alert" className="text-xs font-medium text-red-600">
+                    ! {errorMessage}
+                  </p>
+                )}
+
+                {feedbackMessage && (
+                  <p role="status" className="text-xs font-medium text-emerald-700">
+                    ✓ {feedbackMessage}
+                  </p>
+                )}
+
+                <Button
+                  type="submit"
+                  variant={operation === 'award' ? 'primary' : 'danger'}
+                  size="md"
+                  disabled={isSubmitting}
+                  className="w-full"
+                >
+                  {isSubmitting
+                    ? 'Processing Adjustment...'
+                    : operation === 'award'
+                    ? `Award +${amount} Credits`
+                    : `Deduct -${amount} Credits`}
+                </Button>
+              </form>
+            </section>
+          ) : (
+            <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-700 border border-amber-200">
+                  <Trophy className="h-5 w-5" />
+                </div>
                 <div>
-                  <label
-                    htmlFor="credit-category-select"
-                    className="block text-xs font-semibold text-slate-700"
-                  >
-                    Category
-                  </label>
-                  <select
-                    id="credit-category-select"
-                    value={
-                      operation === 'deduct' ? 'Penalty / Deduction' : category
-                    }
-                    disabled={operation === 'deduct'}
-                    onChange={(e) =>
-                      setCategory(
-                        e.target.value as CreditTransaction['category']
-                      )
-                    }
-                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-slate-900 focus:outline-none disabled:bg-slate-50"
-                  >
-                    <option value="Task Completion">Task Completion</option>
-                    <option value="Event Attendance">Event Attendance</option>
-                    <option value="Leadership Bonus">Leadership Bonus</option>
-                    <option value="Peer Recognition">Peer Recognition</option>
-                    <option value="Penalty / Deduction">
-                      Penalty / Deduction
-                    </option>
-                  </select>
+                  <h3 className="text-sm font-semibold text-slate-900 font-display">
+                    Your Semester Standing
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Leaderboard Rank #{myRank || '-'} of {leaderboard.length}
+                  </p>
                 </div>
               </div>
-
-              <div>
-                <label
-                  htmlFor="credit-reason-input"
-                  className="block text-xs font-semibold text-slate-700"
-                >
-                  Reason for Adjustment
-                </label>
-                <input
-                  id="credit-reason-input"
-                  type="text"
-                  required
-                  value={reason}
-                  onChange={(e) => {
-                    setReason(e.target.value);
-                    setErrorMessage('');
-                  }}
-                  placeholder="e.g. Hosted backend architecture review session"
-                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none"
-                />
+              <div className="mt-4 grid grid-cols-2 gap-3 rounded-lg bg-slate-50 p-3.5 border border-slate-200">
+                <div>
+                  <span className="text-[11px] text-slate-500 font-medium">Your Credits</span>
+                  <div className="text-lg font-bold text-slate-900 font-mono">
+                    {currentUser.totalCredits} cr
+                  </div>
+                </div>
+                <div>
+                  <span className="text-[11px] text-slate-500 font-medium">Attendance</span>
+                  <div className="text-lg font-bold text-slate-900 font-mono">
+                    {currentUser.attendancePercentage}%
+                  </div>
+                </div>
               </div>
-
-              {errorMessage && (
-                <p role="alert" className="text-xs font-medium text-red-600">
-                  ! {errorMessage}
-                </p>
-              )}
-
-              {feedbackMessage && (
-                <p role="status" className="text-xs font-medium text-emerald-700">
-                  ✓ {feedbackMessage}
-                </p>
-              )}
-
-              <Button
-                type="submit"
-                variant={operation === 'award' ? 'primary' : 'danger'}
-                size="md"
-                className="w-full"
-              >
-                {operation === 'award'
-                  ? `Award +${amount} Credits`
-                  : `Deduct -${amount} Credits`}
-              </Button>
-            </form>
-          </section>
+              <p className="mt-3 text-xs text-slate-600 leading-relaxed">
+                Credits are awarded by Department Heads and Club Admins for delivering assigned tasks, attending events, and leading initiatives.
+              </p>
+            </section>
+          )}
 
           {/* Recent Credit Activity Log */}
           <section className="rounded-xl border border-slate-200 bg-white overflow-hidden">

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, Clock, CheckCircle2 } from 'lucide-react';
 import { ClubTask, TaskPriority, TaskStatus } from '../types';
 import { useClubStore } from '../hooks/useClubStore';
 import { Button } from '../components/ui/Button';
@@ -7,11 +7,14 @@ import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 
 export const TasksPage: React.FC = () => {
-  const { tasks, members, addTask, changeTaskStatus } = useClubStore();
+  const { tasks, members, addTask, changeTaskStatus, currentUser } = useClubStore();
 
   const [statusFilter, setStatusFilter] = useState<TaskStatus | 'All'>('All');
   const [priorityFilter, setPriorityFilter] = useState<TaskPriority | 'All'>('All');
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  const canAssignTask =
+    currentUser.role === 'Admin' || currentUser.role === 'Department Head';
 
   // New Task Form State
   const [title, setTitle] = useState('');
@@ -21,6 +24,7 @@ export const TasksPage: React.FC = () => {
   const [priority, setPriority] = useState<TaskPriority>('Medium');
   const [creditValue, setCreditValue] = useState(25);
   const [formError, setFormError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const filteredTasks = tasks.filter((t) => {
     const matchesStatus = statusFilter === 'All' || t.status === statusFilter;
@@ -29,7 +33,7 @@ export const TasksPage: React.FC = () => {
     return matchesStatus && matchesPriority;
   });
 
-  const handleCreateTask = (e: React.FormEvent) => {
+  const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !deadline.trim()) {
       setFormError('Please enter a task title and deadline.');
@@ -39,23 +43,32 @@ export const TasksPage: React.FC = () => {
     const assignee =
       members.find((m) => m.id === assignedToId) || members[0];
 
-    addTask({
-      title: title.trim(),
-      description:
-        description.trim() || 'Assigned club deliverable tracked in CampusPulse.',
-      assignedToId: assignee.id,
-      assignedToName: assignee.name,
-      department: assignee.department,
-      deadline,
-      status: 'To Do',
-      priority,
-      creditValue: Number(creditValue) || 20,
-    });
-
-    setTitle('');
-    setDescription('');
+    setIsSubmitting(true);
     setFormError('');
-    setIsModalOpen(false);
+
+    try {
+      await addTask({
+        title: title.trim(),
+        description:
+          description.trim() || 'Assigned club deliverable tracked in CampusPulse.',
+        assignedToId: assignee.id,
+        assignedToName: assignee.name,
+        department: assignee.department,
+        deadline,
+        status: 'To Do',
+        priority,
+        creditValue: Number(creditValue) || 20,
+      });
+
+      setTitle('');
+      setDescription('');
+      setFormError('');
+      setIsModalOpen(false);
+    } catch (err: any) {
+      setFormError(err.message || 'Failed to create task.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const statusOptions: TaskStatus[] = [
@@ -78,14 +91,16 @@ export const TasksPage: React.FC = () => {
           </p>
         </div>
 
-        <Button
-          variant="primary"
-          size="md"
-          onClick={() => setIsModalOpen(true)}
-        >
-          <Plus className="h-4 w-4" />
-          <span>Assign New Task</span>
-        </Button>
+        {canAssignTask && (
+          <Button
+            variant="primary"
+            size="md"
+            onClick={() => setIsModalOpen(true)}
+          >
+            <Plus className="h-4 w-4" />
+            <span>Assign New Task</span>
+          </Button>
+        )}
       </div>
 
       {/* Filter Bar */}
@@ -174,6 +189,16 @@ export const TasksPage: React.FC = () => {
                     ? 'warning'
                     : 'neutral';
 
+                const isOverdue =
+                  task.status !== 'Completed' &&
+                  new Date(task.deadline).getTime() < new Date().setHours(0, 0, 0, 0);
+
+                const canEditStatus =
+                  currentUser.role === 'Admin' ||
+                  (currentUser.role === 'Department Head' &&
+                    currentUser.department === task.department) ||
+                  currentUser.id === task.assignedToId;
+
                 return (
                   <tr
                     key={task.id}
@@ -198,39 +223,54 @@ export const TasksPage: React.FC = () => {
                         {task.department}
                       </div>
                     </td>
-                    <td className="px-5 py-3.5 font-mono tabular-nums text-xs text-slate-800 whitespace-nowrap">
-                      {task.deadline}
+                    <td className="px-5 py-3.5 whitespace-nowrap">
+                      <div className="flex items-center gap-1.5 font-mono tabular-nums text-xs">
+                        <span className={isOverdue ? 'font-semibold text-rose-700' : 'text-slate-800'}>
+                          {task.deadline}
+                        </span>
+                        {isOverdue && (
+                          <Badge tone="danger" className="text-[10px] px-1 py-0 font-sans">
+                            Overdue
+                          </Badge>
+                        )}
+                      </div>
                     </td>
                     <td className="px-5 py-3.5">
                       <Badge tone={priorityTone}>{task.priority}</Badge>
                     </td>
                     <td className="px-5 py-3.5">
-                      <Badge tone={statusTone}>{task.status}</Badge>
+                      <Badge tone={statusTone} withDot>{task.status}</Badge>
                     </td>
                     <td className="px-5 py-3.5 text-right">
-                      <label
-                        htmlFor={`status-select-${task.id}`}
-                        className="sr-only"
-                      >
-                        Change status for {task.title}
-                      </label>
-                      <select
-                        id={`status-select-${task.id}`}
-                        value={task.status}
-                        onChange={(e) =>
-                          changeTaskStatus(
-                            task.id,
-                            e.target.value as TaskStatus
-                          )
-                        }
-                        className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800 focus:border-slate-900 focus:outline-none"
-                      >
-                        {statusOptions.map((opt) => (
-                          <option key={opt} value={opt}>
-                            {opt}
-                          </option>
-                        ))}
-                      </select>
+                      {canEditStatus ? (
+                        <>
+                          <label
+                            htmlFor={`status-select-${task.id}`}
+                            className="sr-only"
+                          >
+                            Change status for {task.title}
+                          </label>
+                          <select
+                            id={`status-select-${task.id}`}
+                            value={task.status}
+                            onChange={(e) =>
+                              changeTaskStatus(
+                                task.id,
+                                e.target.value as TaskStatus
+                              )
+                            }
+                            className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800 focus:border-slate-900 focus:outline-none cursor-pointer"
+                          >
+                            {statusOptions.map((opt) => (
+                              <option key={opt} value={opt}>
+                                {opt}
+                              </option>
+                            ))}
+                          </select>
+                        </>
+                      ) : (
+                        <span className="text-xs text-slate-400">View only</span>
+                      )}
                     </td>
                   </tr>
                 );
@@ -379,8 +419,8 @@ export const TasksPage: React.FC = () => {
             >
               Cancel
             </Button>
-            <Button type="submit" variant="primary" size="sm">
-              Assign Task
+            <Button type="submit" variant="primary" size="sm" disabled={isSubmitting}>
+              {isSubmitting ? 'Assigning...' : 'Assign Task'}
             </Button>
           </div>
         </form>

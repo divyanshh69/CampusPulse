@@ -11,6 +11,7 @@ import {
 
 export interface DashboardMetrics {
   totalMembers: number;
+  activeMembers: number;
   upcomingEventsCount: number;
   averageAttendance: number;
   totalCreditsDistributed: number;
@@ -24,6 +25,7 @@ export function calculateDashboardMetrics(
   events: ClubEvent[]
 ): DashboardMetrics {
   const totalMembers = members.length;
+  const activeMembers = members.filter((m) => m.status === 'Active').length;
   const upcomingEventsCount = events.filter(
     (e) => e.status === 'Upcoming' || e.status === 'Ongoing'
   ).length;
@@ -43,6 +45,7 @@ export function calculateDashboardMetrics(
 
   return {
     totalMembers,
+    activeMembers,
     upcomingEventsCount,
     averageAttendance,
     totalCreditsDistributed,

@@ -4,6 +4,7 @@ export interface ColumnDef<T> {
   key: string;
   header: string;
   align?: 'left' | 'right' | 'center';
+  className?: string;
   render: (row: T) => React.ReactNode;
 }
 
@@ -24,7 +25,7 @@ export function DataTable<T>({
 }: DataTableProps<T>) {
   if (data.length === 0) {
     return (
-      <div className="rounded-xl border border-slate-200 bg-white p-10 text-center">
+      <div className="card-base p-12 text-center">
         <p className="text-sm font-medium text-slate-700">{emptyMessage}</p>
         {emptyAction && <div className="mt-4 flex justify-center">{emptyAction}</div>}
       </div>
@@ -38,7 +39,7 @@ export function DataTable<T>({
   };
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+    <div className="card-base overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <thead>
@@ -49,14 +50,14 @@ export function DataTable<T>({
                   scope="col"
                   className={`px-4 py-3 text-xs font-semibold text-slate-600 whitespace-nowrap ${
                     alignClasses[col.align || 'left']
-                  }`}
+                  } ${col.className || ''}`}
                 >
                   {col.header}
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-200/80">
+          <tbody className="divide-y divide-slate-100">
             {data.map((row) => (
               <tr
                 key={rowKey(row)}
@@ -67,7 +68,7 @@ export function DataTable<T>({
                     key={col.key}
                     className={`px-4 py-3 align-middle text-slate-800 ${
                       alignClasses[col.align || 'left']
-                    }`}
+                    } ${col.className || ''}`}
                   >
                     {col.render(row)}
                   </td>

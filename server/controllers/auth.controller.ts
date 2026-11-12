@@ -44,6 +44,7 @@ export class AuthController {
         'POST /api/auth/login',
         'POST /api/auth/register',
         'GET /api/auth/me',
+        'POST /api/auth/change-password',
       ],
       security: {
         passwordHashing: 'bcrypt (salt rounds = 10)',
@@ -80,12 +81,15 @@ export class AuthController {
         return;
       }
 
-      if (user.passwordHash) {
-        const isMatch = await comparePassword(password, user.passwordHash);
-        if (!isMatch) {
-          sendError(res, 'Invalid email or password.', 401);
-          return;
-        }
+      if (!user.passwordHash) {
+        sendError(res, 'Account does not have a configured local password.', 401);
+        return;
+      }
+
+      const isMatch = await comparePassword(password, user.passwordHash);
+      if (!isMatch) {
+        sendError(res, 'Invalid email or password.', 401);
+        return;
       }
 
       const token = signToken({
@@ -141,6 +145,11 @@ export class AuthController {
           'Required fields: name, email, password, studentId, major, departmentId.',
           400
         );
+        return;
+      }
+
+      if (password.length < 8) {
+        sendError(res, 'Password must be at least 8 characters long.', 400);
         return;
       }
 
@@ -233,6 +242,63 @@ export class AuthController {
         ...safeUser,
         academicYear: formatAcademicYear(safeUser.academicYear),
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Change current user's password
+   */
+  static async changePassword(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      if (!req.user) {
+        sendError(res, 'Authentication required.', 401);
+        return;
+      }
+
+      const { oldPassword, newPassword } = req.body;
+      if (!oldPassword || !newPassword) {
+        sendError(res, 'Both current password and new password are required.', 400);
+        return;
+      }
+
+      if (newPassword.length < 8) {
+        sendError(res, 'New password must be at least 8 characters long.', 400);
+        return;
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: req.user.userId },
+      });
+
+      if (!user) {
+        sendError(res, 'User profile not found.', 404);
+        return;
+      }
+
+      if (!user.passwordHash) {
+        sendError(res, 'Account does not have a configured local password.', 400);
+        return;
+      }
+
+      const isMatch = await comparePassword(oldPassword, user.passwordHash);
+      if (!isMatch) {
+        sendError(res, 'The current password you entered is incorrect.', 400);
+        return;
+      }
+
+      const newHash = await hashPassword(newPassword);
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash: newHash },
+      });
+
+      sendSuccess(res, null, 'Password updated successfully.');
     } catch (err) {
       next(err);
     }
