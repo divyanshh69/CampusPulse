@@ -384,7 +384,29 @@ export class EventsController {
 
       if (capacity !== undefined) {
         const c = Number(capacity);
-        if (!isNaN(c) && c >= 1) updateData.capacity = c;
+        if (isNaN(c) || c < 0) {
+          sendError(res, 'Capacity must be a non-negative number.', 400);
+          return;
+        }
+
+        if (c > 0) {
+          const activeRegistrationsCount = await prisma.eventRegistration.count({
+            where: {
+              eventId: id,
+              status: RegistrationStatus.REGISTERED,
+            },
+          });
+
+          if (c < activeRegistrationsCount) {
+            sendError(
+              res,
+              `Cannot reduce capacity to ${c}. Event already has ${activeRegistrationsCount} active registrations.`,
+              400
+            );
+            return;
+          }
+        }
+        updateData.capacity = c;
       }
 
       if (creditReward !== undefined) {

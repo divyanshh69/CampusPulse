@@ -3,9 +3,30 @@ import { prisma } from '../db/prisma';
 import { sendSuccess, sendError } from '../utils/apiResponse';
 import { RegistrationStatus, ActivityCategory, EventStatus, UserRole } from '@prisma/client';
 
+/**
+ * Determines whether an event is in the past
+ */
+function isEventInPast(event: { date: string; status: EventStatus }): boolean {
+  if (event.status === EventStatus.COMPLETED) {
+    return true;
+  }
+  if (event.date) {
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      if (event.date < todayStr) {
+        return true;
+      }
+    } catch {
+      // Fallback to false on unparseable date
+    }
+  }
+  return false;
+}
+
 export class RegistrationsController {
   /**
    * Diagnostic status of registrations module
+   * Exposes only high-level route metadata with no sensitive operational or database data
    */
   static async status(_req: Request, res: Response): Promise<void> {
     sendSuccess(res, {
@@ -192,13 +213,13 @@ export class RegistrationsController {
 
   /**
    * Register the currently authenticated member for an event
-   * Enforces:
-   * 1. Event existence
-   * 2. Non-cancelled event status
-   * 3. Duplicate registration prevention (409 Conflict)
-   * 4. Capacity limit enforcement (400 Bad Request)
-   * 5. Atomic transaction execution
-   * 6. Activity log generation
+   * Concurrency-safe implementation:
+   * 1. Acquires an exclusive row-level lock on the ClubEvent row (SELECT ... FOR UPDATE)
+   * 2. Validates event existence, cancelled status, and completed/past event timing
+   * 3. Prevents duplicate active registration (409 Conflict)
+   * 4. Enforces capacity limit with 100% isolation against race conditions (400 Bad Request)
+   * 5. Safely reactivates previously cancelled registrations via atomic upsert
+   * 6. Creates activity log inside the same transaction
    */
   static async registerForEvent(
     req: Request,
@@ -213,26 +234,44 @@ export class RegistrationsController {
       }
 
       const { eventId } = req.params;
-
-      const event = await prisma.clubEvent.findUnique({
-        where: { id: eventId },
-      });
-
-      if (!event) {
-        sendError(res, 'Event not found.', 404);
-        return;
-      }
-
-      if (event.status === EventStatus.CANCELLED) {
-        sendError(res, 'Cannot register for a cancelled event.', 400);
-        return;
-      }
-
       const userId = user.userId;
 
-      // Atomic registration and capacity check
+      // Execute concurrency-safe registration inside transaction with row-level lock
       const result = await prisma.$transaction(async (tx) => {
-        // 1. Check existing registration
+        // 1. Lock the target event row with SELECT ... FOR UPDATE
+        // This serializes all concurrent registration requests for this specific event
+        const lockedEvents = await tx.$queryRaw<
+          Array<{
+            id: string;
+            title: string;
+            status: EventStatus;
+            capacity: number;
+            date: string;
+            time: string;
+          }>
+        >`
+          SELECT id, title, status, capacity, date, time
+          FROM "club_events"
+          WHERE id = ${eventId}
+          FOR UPDATE
+        `;
+
+        if (!lockedEvents || lockedEvents.length === 0) {
+          throw { status: 404, message: 'Event not found.' };
+        }
+
+        const lockedEvent = lockedEvents[0];
+
+        // 2. Validate event status & timing
+        if (lockedEvent.status === EventStatus.CANCELLED) {
+          throw { status: 400, message: 'Cannot register for a cancelled event.' };
+        }
+
+        if (isEventInPast(lockedEvent)) {
+          throw { status: 400, message: 'Cannot register for a past or completed event.' };
+        }
+
+        // 3. Check existing registration for this user
         const existing = await tx.eventRegistration.findUnique({
           where: {
             eventId_userId: { eventId, userId },
@@ -243,8 +282,8 @@ export class RegistrationsController {
           throw { status: 409, message: 'You are already registered for this event.' };
         }
 
-        // 2. Check event capacity
-        if (event.capacity && event.capacity > 0) {
+        // 4. Enforce capacity limit atomically while holding row lock
+        if (lockedEvent.capacity && lockedEvent.capacity > 0) {
           const activeCount = await tx.eventRegistration.count({
             where: {
               eventId,
@@ -252,15 +291,15 @@ export class RegistrationsController {
             },
           });
 
-          if (activeCount >= event.capacity) {
+          if (activeCount >= lockedEvent.capacity) {
             throw {
               status: 400,
-              message: `This event has reached full capacity (${event.capacity} maximum participants).`,
+              message: `This event has reached full capacity (${lockedEvent.capacity} maximum participants).`,
             };
           }
         }
 
-        // 3. Upsert registration
+        // 5. Upsert registration (reactivates CANCELLED row or inserts new REGISTERED row)
         const registration = await tx.eventRegistration.upsert({
           where: {
             eventId_userId: { eventId, userId },
@@ -276,7 +315,7 @@ export class RegistrationsController {
           },
         });
 
-        // 4. Record activity log
+        // 6. Record activity log atomically
         const actorRole =
           user.role === UserRole.ADMIN
             ? 'Admin'
@@ -290,7 +329,7 @@ export class RegistrationsController {
             actorName: user.name || 'Member',
             actorRole,
             action: 'Registered for event',
-            target: event.title,
+            target: lockedEvent.title,
             category: ActivityCategory.EVENT,
           },
         });
@@ -322,6 +361,7 @@ export class RegistrationsController {
 
   /**
    * Cancel the currently authenticated member's registration for an event
+   * Concurrency-safe and transactionally consistent implementation
    */
   static async cancelRegistration(
     req: Request,
@@ -336,31 +376,40 @@ export class RegistrationsController {
       }
 
       const { eventId } = req.params;
-
-      const event = await prisma.clubEvent.findUnique({
-        where: { id: eventId },
-      });
-
-      if (!event) {
-        sendError(res, 'Event not found.', 404);
-        return;
-      }
-
       const userId = user.userId;
 
-      // Find existing active registration
-      const existing = await prisma.eventRegistration.findUnique({
-        where: {
-          eventId_userId: { eventId, userId },
-        },
-      });
-
-      if (!existing || existing.status !== RegistrationStatus.REGISTERED) {
-        sendError(res, 'You do not have an active registration for this event.', 400);
-        return;
-      }
-
       const result = await prisma.$transaction(async (tx) => {
+        // Lock event row
+        const lockedEvents = await tx.$queryRaw<
+          Array<{ id: string; title: string }>
+        >`
+          SELECT id, title
+          FROM "club_events"
+          WHERE id = ${eventId}
+          FOR UPDATE
+        `;
+
+        if (!lockedEvents || lockedEvents.length === 0) {
+          throw { status: 404, message: 'Event not found.' };
+        }
+
+        const lockedEvent = lockedEvents[0];
+
+        // Find existing active registration
+        const existing = await tx.eventRegistration.findUnique({
+          where: {
+            eventId_userId: { eventId, userId },
+          },
+        });
+
+        if (!existing || existing.status !== RegistrationStatus.REGISTERED) {
+          throw {
+            status: 400,
+            message: 'You do not have an active registration for this event.',
+          };
+        }
+
+        // Cancel registration
         const cancelled = await tx.eventRegistration.update({
           where: {
             eventId_userId: { eventId, userId },
@@ -384,7 +433,7 @@ export class RegistrationsController {
             actorName: user.name || 'Member',
             actorRole,
             action: 'Cancelled event registration',
-            target: event.title,
+            target: lockedEvent.title,
             category: ActivityCategory.EVENT,
           },
         });
@@ -404,9 +453,12 @@ export class RegistrationsController {
         },
         'Event registration successfully cancelled.'
       );
-    } catch (err) {
+    } catch (err: any) {
+      if (err.status && err.message) {
+        sendError(res, err.message, err.status);
+        return;
+      }
       next(err);
     }
   }
 }
-
