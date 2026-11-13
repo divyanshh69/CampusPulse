@@ -4,7 +4,10 @@ import assert from 'node:assert/strict';
 const BASE_URL = 'http://localhost:5001';
 const DEFAULT_PASSWORD = 'campusPulse123!';
 
+const tokenCache = new Map<string, string>();
+
 async function loginUser(email: string, password = DEFAULT_PASSWORD): Promise<string> {
+  if (tokenCache.has(email)) return tokenCache.get(email)!;
   const res = await fetch(`${BASE_URL}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -14,6 +17,7 @@ async function loginUser(email: string, password = DEFAULT_PASSWORD): Promise<st
   if (!res.ok || !data.data?.token) {
     throw new Error(`Login failed for ${email}: ${JSON.stringify(data)}`);
   }
+  tokenCache.set(email, data.data.token);
   return data.data.token;
 }
 

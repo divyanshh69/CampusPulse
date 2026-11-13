@@ -42,6 +42,7 @@ model User {
   updatedAt            DateTime            @updatedAt
   activityLogs         ActivityLog[]
   attendanceRecords    AttendanceRecord[]
+  registrations        EventRegistration[]
   assignedTasks        ClubTask[]
   issuedCredits        CreditTransaction[] @relation("IssuedCredits")
   creditTransactions   CreditTransaction[] @relation("MemberCredits")
@@ -69,6 +70,7 @@ model ClubEvent {
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   attendanceRecords AttendanceRecord[]
+  registrations     EventRegistration[]
   department        Department?        @relation(fields: [departmentId], references: [id])
 
   @@index([status])
@@ -94,6 +96,23 @@ model AttendanceRecord {
   @@index([eventId])
   @@index([memberId])
   @@map("attendance_records")
+}
+
+model EventRegistration {
+  id        String             @id @default(cuid())
+  eventId   String
+  userId    String
+  status    RegistrationStatus @default(REGISTERED)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+  event     ClubEvent          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+  @@index([eventId])
+  @@index([userId])
+  @@index([status])
+  @@map("event_registrations")
 }
 
 model CreditTransaction {
@@ -211,4 +230,9 @@ enum ActivityCategory {
   ATTENDANCE
   CREDIT
   TASK
+}
+
+enum RegistrationStatus {
+  REGISTERED
+  CANCELLED
 }

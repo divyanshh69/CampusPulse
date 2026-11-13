@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../db/prisma';
 import { sendSuccess, sendError } from '../utils/apiResponse';
-import { EventStatus, UserRole } from '@prisma/client';
+import { EventStatus, RegistrationStatus, UserRole } from '@prisma/client';
 
 /**
  * Maps frontend or case-insensitive status string to Prisma EventStatus enum
@@ -56,6 +56,10 @@ async function resolveDepartmentId(deptInput?: string | null): Promise<string | 
  * Formats event record for consistent frontend consumption
  */
 function formatEvent(e: any) {
+  const registeredCount = e._count?.registrations ?? 0;
+  const attendanceCount = e._count?.attendanceRecords ?? (e.attendanceRecords ? e.attendanceRecords.length : 0);
+  const count = registeredCount > 0 ? registeredCount : attendanceCount;
+
   return {
     id: e.id,
     title: e.title,
@@ -69,7 +73,8 @@ function formatEvent(e: any) {
     capacity: e.capacity,
     creditReward: e.creditReward,
     mandatory: Boolean(e.mandatory),
-    participantCount: e._count?.attendanceRecords ?? (e.attendanceRecords ? e.attendanceRecords.length : 0),
+    participantCount: count,
+    registeredCount,
     createdAt: e.createdAt,
     updatedAt: e.updatedAt,
   };
@@ -132,7 +137,10 @@ export class EventsController {
         include: {
           department: true,
           _count: {
-            select: { attendanceRecords: true },
+            select: {
+              attendanceRecords: true,
+              registrations: { where: { status: RegistrationStatus.REGISTERED } },
+            },
           },
         },
         orderBy: { date: 'asc' },
@@ -159,7 +167,10 @@ export class EventsController {
         include: {
           department: true,
           _count: {
-            select: { attendanceRecords: true },
+            select: {
+              attendanceRecords: true,
+              registrations: { where: { status: RegistrationStatus.REGISTERED } },
+            },
           },
           attendanceRecords: {
             include: {
@@ -276,7 +287,10 @@ export class EventsController {
         include: {
           department: true,
           _count: {
-            select: { attendanceRecords: true },
+            select: {
+              attendanceRecords: true,
+              registrations: { where: { status: RegistrationStatus.REGISTERED } },
+            },
           },
         },
       });
@@ -396,7 +410,10 @@ export class EventsController {
         include: {
           department: true,
           _count: {
-            select: { attendanceRecords: true },
+            select: {
+              attendanceRecords: true,
+              registrations: { where: { status: RegistrationStatus.REGISTERED } },
+            },
           },
         },
       });

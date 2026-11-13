@@ -51,6 +51,30 @@ export interface ClubEvent {
   capacity: number;
   creditReward: number;
   mandatory: boolean;
+  registeredCount?: number;
+  isRegistered?: boolean;
+}
+
+export type RegistrationStatus = 'REGISTERED' | 'CANCELLED';
+
+export interface EventRegistration {
+  id: string;
+  eventId: string;
+  userId: string;
+  status: RegistrationStatus;
+  createdAt: string;
+  updatedAt: string;
+  user?: {
+    id: string;
+    name: string;
+    email: string;
+    studentId: string;
+    academicYear: AcademicYear;
+    major: string;
+    role: UserRole;
+    department?: string;
+  };
+  event?: ClubEvent;
 }
 
 export type AttendanceStatus = 'Present' | 'Absent' | 'Excused';

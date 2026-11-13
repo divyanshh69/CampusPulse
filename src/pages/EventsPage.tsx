@@ -1,10 +1,23 @@
-import React, { useState, useEffect } from 'react';
-import { CalendarPlus, Search, RefreshCw, AlertCircle, CheckCircle2, Trash2 } from 'lucide-react';
-import { ClubEvent, DepartmentName, EventStatus } from '../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  CalendarPlus,
+  Search,
+  RefreshCw,
+  AlertCircle,
+  CheckCircle2,
+  Trash2,
+  CalendarCheck,
+  Users,
+  GraduationCap,
+  Calendar,
+  MapPin,
+} from 'lucide-react';
+import { ClubEvent, DepartmentName, EventStatus, EventRegistration } from '../types';
 import { ALL_DEPARTMENTS, useClubStore } from '../hooks/useClubStore';
 import { Button } from '../components/ui/Button';
 import { EventCard } from '../components/ui/EventCard';
 import { Modal } from '../components/ui/Modal';
+import { Badge } from '../components/ui/Badge';
 
 export const EventsPage: React.FC = () => {
   const {
@@ -15,13 +28,29 @@ export const EventsPage: React.FC = () => {
     addEvent,
     updateEvent,
     deleteEvent,
+    myRegistrations,
+    isLoadingRegistrations,
+    fetchMyRegistrations,
+    registerForEvent,
+    cancelEventRegistration,
+    getEventRegistrations,
     currentUser,
     setCurrentPage,
   } = useClubStore();
 
+  const [viewFilter, setViewFilter] = useState<'all' | 'my-rsvps'>('all');
   const [statusFilter, setStatusFilter] = useState<EventStatus | 'All'>('All');
   const [departmentFilter, setDepartmentFilter] = useState<DepartmentName | 'All'>('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [registeringEventId, setRegisteringEventId] = useState<string | null>(null);
+
+  // Participants Modal State
+  const [isParticipantsModalOpen, setIsParticipantsModalOpen] = useState(false);
+  const [selectedEventForModal, setSelectedEventForModal] = useState<ClubEvent | null>(null);
+  const [participantList, setParticipantList] = useState<EventRegistration[]>([]);
+  const [isLoadingParticipants, setIsLoadingParticipants] = useState(false);
+  const [participantsError, setParticipantsError] = useState<string | null>(null);
+  const [participantSearch, setParticipantSearch] = useState('');
 
   // Create Event Form State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -56,7 +85,7 @@ export const EventsPage: React.FC = () => {
   const [editError, setEditError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  // Success Feedback Banner
+  // Feedback Banner
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
   const showFeedback = (msg: string) => {
@@ -64,10 +93,20 @@ export const EventsPage: React.FC = () => {
     setTimeout(() => setFeedbackMessage(null), 3500);
   };
 
-  // Ensure fresh events are loaded on mount
+  // Ensure fresh events and registrations are loaded on mount
   useEffect(() => {
     fetchEvents();
-  }, [fetchEvents]);
+    fetchMyRegistrations();
+  }, [fetchEvents, fetchMyRegistrations]);
+
+  // Set of registered event IDs for currently logged-in user
+  const registeredEventIds = useMemo(() => {
+    return new Set(
+      myRegistrations
+        .filter((r) => r.status === 'REGISTERED')
+        .map((r) => r.eventId)
+    );
+  }, [myRegistrations]);
 
   // Authorization checks
   const canCreateEvent = currentUser.role === 'Admin' || currentUser.role === 'Department Head';
@@ -80,7 +119,22 @@ export const EventsPage: React.FC = () => {
     return false;
   };
 
+  const canViewRegistrationsForEvent = (evt: ClubEvent): boolean => {
+    if (currentUser.role === 'Admin') return true;
+    if (currentUser.role === 'Department Head') {
+      return (
+        !evt.department ||
+        evt.department === 'All Departments' ||
+        evt.department === currentUser.department
+      );
+    }
+    return false;
+  };
+
   const filteredEvents = events.filter((e) => {
+    if (viewFilter === 'my-rsvps' && !registeredEventIds.has(e.id)) {
+      return false;
+    }
     const matchesStatus = statusFilter === 'All' || e.status === statusFilter;
     const matchesDept = departmentFilter === 'All' || e.department === departmentFilter;
     const matchesSearch =
@@ -90,6 +144,54 @@ export const EventsPage: React.FC = () => {
       e.description.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesStatus && matchesDept && matchesSearch;
   });
+
+  // Handle RSVP
+  const handleRegister = async (eventId: string) => {
+    setRegisteringEventId(eventId);
+    try {
+      await registerForEvent(eventId);
+      showFeedback('RSVP confirmed! You are registered for this event.');
+    } catch (err: any) {
+      console.error('Failed to register:', err);
+      showFeedback(err.message || 'Failed to register for event.');
+    } finally {
+      setRegisteringEventId(null);
+    }
+  };
+
+  // Handle Cancel RSVP
+  const handleCancelRegistration = async (eventId: string) => {
+    setRegisteringEventId(eventId);
+    try {
+      await cancelEventRegistration(eventId);
+      showFeedback('Registration cancelled successfully.');
+    } catch (err: any) {
+      console.error('Failed to cancel registration:', err);
+      showFeedback(err.message || 'Failed to cancel registration.');
+    } finally {
+      setRegisteringEventId(null);
+    }
+  };
+
+  // Handle View Participants Modal
+  const handleOpenParticipantsModal = async (eventId: string) => {
+    const event = events.find((e) => e.id === eventId);
+    if (!event) return;
+    setSelectedEventForModal(event);
+    setIsParticipantsModalOpen(true);
+    setIsLoadingParticipants(true);
+    setParticipantsError(null);
+    setParticipantSearch('');
+    try {
+      const data = await getEventRegistrations(eventId);
+      setParticipantList(data.registrations || []);
+    } catch (err: any) {
+      console.error('Failed to load participants:', err);
+      setParticipantsError(err.message || 'Failed to load participants.');
+    } finally {
+      setIsLoadingParticipants(false);
+    }
+  };
 
   const handleOpenCreateModal = () => {
     setTitle('');
@@ -226,6 +328,17 @@ export const EventsPage: React.FC = () => {
     'Cancelled',
   ];
 
+  const filteredModalParticipants = participantList.filter((r) => {
+    if (!participantSearch.trim()) return true;
+    const q = participantSearch.toLowerCase();
+    return (
+      r.user?.name.toLowerCase().includes(q) ||
+      r.user?.email.toLowerCase().includes(q) ||
+      r.user?.studentId.toLowerCase().includes(q) ||
+      r.user?.major.toLowerCase().includes(q)
+    );
+  });
+
   return (
     <div className="space-y-6">
       {/* Success Notification Banner */}
@@ -275,12 +388,12 @@ export const EventsPage: React.FC = () => {
             <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700 font-mono">
               {filteredEvents.length}
             </span>
-            {isLoadingEvents && (
+            {(isLoadingEvents || isLoadingRegistrations) && (
               <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-400" />
             )}
           </div>
           <p className="mt-0.5 text-xs text-slate-600">
-            Manage workshops, general body assemblies, speaker mixers, and participant capacities.
+            Manage workshops, general body assemblies, RSVPs, and participant capacities.
           </p>
         </div>
 
@@ -294,6 +407,50 @@ export const EventsPage: React.FC = () => {
             <span>Create New Event</span>
           </Button>
         )}
+      </div>
+
+      {/* View Switcher: All Events vs My RSVPs */}
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+        <button
+          type="button"
+          onClick={() => setViewFilter('all')}
+          className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+            viewFilter === 'all'
+              ? 'bg-slate-900 text-white shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+        >
+          <span>All Events</span>
+          <span
+            className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono ${
+              viewFilter === 'all' ? 'bg-slate-800 text-slate-200' : 'bg-slate-200 text-slate-700'
+            }`}
+          >
+            {events.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setViewFilter('my-rsvps')}
+          className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+            viewFilter === 'my-rsvps'
+              ? 'bg-slate-900 text-white shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+        >
+          <CalendarCheck className="h-3.5 w-3.5" />
+          <span>My RSVPs</span>
+          <span
+            className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono ${
+              viewFilter === 'my-rsvps'
+                ? 'bg-emerald-950 text-emerald-200'
+                : 'bg-emerald-100 text-emerald-800'
+            }`}
+          >
+            {registeredEventIds.size}
+          </span>
+        </button>
       </div>
 
       {/* Filter Bar */}
@@ -312,7 +469,7 @@ export const EventsPage: React.FC = () => {
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                {st === 'All' ? 'All Events' : st}
+                {st === 'All' ? 'All Statuses' : st}
               </button>
             ))}
           </div>
@@ -349,11 +506,13 @@ export const EventsPage: React.FC = () => {
         <div className="flex items-center justify-between border-t border-slate-100 pt-2 text-[11px] text-slate-500">
           <span className="font-mono tabular-nums">
             Showing {filteredEvents.length} of {events.length} sessions
+            {viewFilter === 'my-rsvps' && ' (Filtered by your active RSVPs)'}
           </span>
-          {(statusFilter !== 'All' || departmentFilter !== 'All' || searchQuery) && (
+          {(statusFilter !== 'All' || departmentFilter !== 'All' || searchQuery || viewFilter !== 'all') && (
             <button
               type="button"
               onClick={() => {
+                setViewFilter('all');
                 setStatusFilter('All');
                 setDepartmentFilter('All');
                 setSearchQuery('');
@@ -390,26 +549,48 @@ export const EventsPage: React.FC = () => {
       ) : filteredEvents.length === 0 ? (
         /* Empty State */
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center">
-          <CalendarPlus className="h-10 w-10 text-slate-300" />
-          <h3 className="mt-3 text-sm font-semibold text-slate-900 font-display">
-            No events match the selected criteria
-          </h3>
-          <p className="mt-1 text-xs text-slate-500 max-w-sm">
-            Try adjusting your status or department filter, or clear your search term.
-          </p>
-          {(statusFilter !== 'All' || departmentFilter !== 'All' || searchQuery) && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setStatusFilter('All');
-                setDepartmentFilter('All');
-                setSearchQuery('');
-              }}
-              className="mt-4"
-            >
-              Reset All Filters
-            </Button>
+          {viewFilter === 'my-rsvps' ? (
+            <>
+              <CalendarCheck className="h-10 w-10 text-slate-300" />
+              <h3 className="mt-3 text-sm font-semibold text-slate-900 font-display">
+                You have not RSVP'd for any upcoming events
+              </h3>
+              <p className="mt-1 text-xs text-slate-500 max-w-sm">
+                Browse through all available club sessions and secure your seat with one click.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setViewFilter('all')}
+                className="mt-4"
+              >
+                Explore All Events
+              </Button>
+            </>
+          ) : (
+            <>
+              <CalendarPlus className="h-10 w-10 text-slate-300" />
+              <h3 className="mt-3 text-sm font-semibold text-slate-900 font-display">
+                No events match the selected criteria
+              </h3>
+              <p className="mt-1 text-xs text-slate-500 max-w-sm">
+                Try adjusting your status or department filter, or clear your search term.
+              </p>
+              {(statusFilter !== 'All' || departmentFilter !== 'All' || searchQuery) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setStatusFilter('All');
+                    setDepartmentFilter('All');
+                    setSearchQuery('');
+                  }}
+                  className="mt-4"
+                >
+                  Reset All Filters
+                </Button>
+              )}
+            </>
           )}
         </div>
       ) : (
@@ -419,12 +600,184 @@ export const EventsPage: React.FC = () => {
             <EventCard
               key={event.id}
               event={event}
-              onTakeAttendance={handleNavigateAttendance}
+              isRegistered={registeredEventIds.has(event.id)}
+              isRegistering={registeringEventId === event.id}
+              canViewRegistrations={canViewRegistrationsForEvent(event)}
+              onRegister={handleRegister}
+              onCancelRegistration={handleCancelRegistration}
+              onViewRegistrations={handleOpenParticipantsModal}
+              onTakeAttendance={
+                currentUser.role === 'Admin' || currentUser.role === 'Department Head'
+                  ? handleNavigateAttendance
+                  : undefined
+              }
               onEdit={canEditEvent(event) ? handleOpenEditModal : undefined}
             />
           ))}
         </div>
       )}
+
+      {/* Event Participants Modal (Admin & Department Head) */}
+      <Modal
+        isOpen={isParticipantsModalOpen}
+        onClose={() => setIsParticipantsModalOpen(false)}
+        title="Event Participants & RSVPs"
+        subtitle={
+          selectedEventForModal
+            ? `${selectedEventForModal.title} · ${selectedEventForModal.department}`
+            : undefined
+        }
+      >
+        <div className="space-y-4">
+          {selectedEventForModal && (
+            <div className="rounded-lg bg-slate-50 p-3 border border-slate-200/80 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-3 text-slate-600">
+                  <div className="flex items-center gap-1">
+                    <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                    <span>{selectedEventForModal.date}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <MapPin className="h-3.5 w-3.5 text-slate-400" />
+                    <span>{selectedEventForModal.location}</span>
+                  </div>
+                </div>
+                <div className="font-mono tabular-nums font-semibold text-slate-800">
+                  {participantList.length} / {selectedEventForModal.capacity} Seats Filled
+                  {participantList.length >= selectedEventForModal.capacity && (
+                    <span className="ml-1 text-amber-600 font-bold">(Full)</span>
+                  )}
+                </div>
+              </div>
+              <div className="mt-2 h-1.5 w-full bg-slate-200 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    participantList.length >= selectedEventForModal.capacity
+                      ? 'bg-amber-500'
+                      : 'bg-slate-900'
+                  }`}
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      Math.round(
+                        (participantList.length / Math.max(selectedEventForModal.capacity, 1)) *
+                          100
+                      )
+                    )}%`,
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Search Box inside Modal */}
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search attendee by name, student ID, major, or email..."
+              value={participantSearch}
+              onChange={(e) => setParticipantSearch(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 pl-8 pr-3 py-1.5 text-xs text-slate-900 placeholder-slate-400 focus:border-slate-900 focus:outline-none"
+            />
+          </div>
+
+          {participantsError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+              {participantsError}
+            </div>
+          )}
+
+          {isLoadingParticipants ? (
+            <div className="py-8 flex items-center justify-center text-slate-400">
+              <RefreshCw className="h-5 w-5 animate-spin mr-2" />
+              <span className="text-xs">Loading attendee list from database...</span>
+            </div>
+          ) : filteredModalParticipants.length === 0 ? (
+            <div className="py-8 text-center text-slate-500 border border-dashed border-slate-200 rounded-lg">
+              <Users className="h-8 w-8 mx-auto text-slate-300 mb-2" />
+              <p className="text-xs font-medium">
+                {participantList.length === 0
+                  ? 'No members have registered for this event yet.'
+                  : 'No registered attendees match your search term.'}
+              </p>
+            </div>
+          ) : (
+            <div className="max-h-72 overflow-y-auto rounded-lg border border-slate-200 divide-y divide-slate-100">
+              {filteredModalParticipants.map((reg) => (
+                <div
+                  key={reg.id}
+                  className="p-3 flex items-center justify-between gap-3 text-xs hover:bg-slate-50/60 transition-colors"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="h-7 w-7 rounded-full bg-slate-900 text-white flex items-center justify-center text-[10px] font-bold shrink-0">
+                      {reg.user?.name
+                        ?.split(' ')
+                        .map((n) => n[0])
+                        .join('')
+                        .slice(0, 2)
+                        .toUpperCase() || 'CP'}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-semibold text-slate-900 truncate">
+                          {reg.user?.name || 'Registered Member'}
+                        </span>
+                        <span className="font-mono text-[10px] text-slate-500">
+                          ({reg.user?.studentId || 'ID Pending'})
+                        </span>
+                        <Badge tone="success" withDot>
+                          RSVP
+                        </Badge>
+                      </div>
+                      <div className="text-[11px] text-slate-500 flex items-center gap-1.5 truncate mt-0.5">
+                        <span>{reg.user?.email}</span>
+                        <span>·</span>
+                        <span className="flex items-center gap-1">
+                          <GraduationCap className="h-3 w-3 text-slate-400" />
+                          {reg.user?.major || 'General'} ({reg.user?.academicYear || 'Year 1'})
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-right text-[11px] text-slate-400 shrink-0 font-mono">
+                    {new Date(reg.createdAt).toLocaleDateString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex items-center justify-between pt-3 border-t border-slate-100 text-xs">
+            <span className="text-slate-500 font-mono text-[11px]">
+              {filteredModalParticipants.length} attendees listed
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsParticipantsModalOpen(false)}
+              >
+                Close
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setIsParticipantsModalOpen(false);
+                  setCurrentPage('attendance');
+                }}
+              >
+                Take Attendance
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Modal>
 
       {/* Create Event Modal */}
       <Modal

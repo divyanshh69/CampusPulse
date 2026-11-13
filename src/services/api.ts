@@ -11,6 +11,7 @@ import {
   ClubTask,
   TaskStatus,
   ActivityLog,
+  EventRegistration,
 } from '../types';
 
 /**
@@ -690,6 +691,70 @@ export async function recordActivityApi(entry: {
   const payload = await res.json().catch(() => ({}));
   if (!res.ok || !payload.success) {
     throw new Error(payload.message || 'Failed to record activity log.');
+  }
+  return payload.data;
+}
+
+/**
+ * -------------------------------------------------------------
+ * Event Registration & RSVP API Service Functions
+ * -------------------------------------------------------------
+ */
+
+export async function getMyRegistrationsApi(): Promise<EventRegistration[]> {
+  const res = await fetch('/api/events/my-registrations', {
+    method: 'GET',
+    headers: getAuthHeaders(),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to fetch user event registrations.');
+  }
+  return payload.data || [];
+}
+
+export async function getEventRegistrationsApi(
+  eventId: string
+): Promise<{
+  event: { id: string; title: string; capacity: number; department: string };
+  registrations: EventRegistration[];
+  count: number;
+}> {
+  const res = await fetch(`/api/events/${eventId}/registrations`, {
+    method: 'GET',
+    headers: getAuthHeaders(),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to fetch event registrations list.');
+  }
+  return payload.data;
+}
+
+export async function registerForEventApi(
+  eventId: string
+): Promise<EventRegistration> {
+  const res = await fetch(`/api/events/${eventId}/register`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to register for event.');
+  }
+  return payload.data;
+}
+
+export async function cancelEventRegistrationApi(
+  eventId: string
+): Promise<EventRegistration> {
+  const res = await fetch(`/api/events/${eventId}/register`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to cancel event registration.');
   }
   return payload.data;
 }

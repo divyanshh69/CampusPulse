@@ -7,8 +7,15 @@ import { rateLimiter } from '../middleware/rateLimit.middleware';
 const BASE_URL = 'http://localhost:5001';
 const DEFAULT_PASSWORD = 'campusPulse123!';
 
-// Helper function to log in and get JWT token
+const tokenCache = new Map<string, string>();
+
+// Helper function to log in and get JWT token (with test-run caching to respect rate limits)
 async function loginUser(email: string, password = DEFAULT_PASSWORD): Promise<string> {
+  const cacheKey = `${email}:${password}`;
+  if (tokenCache.has(cacheKey)) {
+    return tokenCache.get(cacheKey)!;
+  }
+
   const res = await fetch(`${BASE_URL}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -18,6 +25,7 @@ async function loginUser(email: string, password = DEFAULT_PASSWORD): Promise<st
   if (!res.ok || !data.data?.token) {
     throw new Error(`Login failed for ${email}: ${JSON.stringify(data)}`);
   }
+  tokenCache.set(cacheKey, data.data.token);
   return data.data.token;
 }
 

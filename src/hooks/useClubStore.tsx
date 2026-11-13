@@ -8,6 +8,7 @@ import {
   CreditTransaction,
   ClubTask,
   ActivityLog,
+  EventRegistration,
   PageRoute,
   UserRole,
   DepartmentName,
@@ -47,6 +48,10 @@ import {
   createTaskApi,
   updateTaskStatusApi,
   getActivitiesApi,
+  getMyRegistrationsApi,
+  getEventRegistrationsApi,
+  registerForEventApi,
+  cancelEventRegistrationApi,
 } from '../services/api';
 
 interface ClubStoreContextValue {
@@ -94,6 +99,18 @@ interface ClubStoreContextValue {
   isLoadingActivities: boolean;
   activitiesError: string | null;
   fetchActivities: () => Promise<void>;
+
+  myRegistrations: EventRegistration[];
+  isLoadingRegistrations: boolean;
+  registrationsError: string | null;
+  fetchMyRegistrations: () => Promise<void>;
+  registerForEvent: (eventId: string) => Promise<void>;
+  cancelEventRegistration: (eventId: string) => Promise<void>;
+  getEventRegistrations: (eventId: string) => Promise<{
+    event: { id: string; title: string; capacity: number; department: string };
+    registrations: EventRegistration[];
+    count: number;
+  }>;
 
   metrics: DashboardMetrics;
 
@@ -173,6 +190,10 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
   const [activities, setActivities] = useState<ActivityLog[]>([]);
   const [isLoadingActivities, setIsLoadingActivities] = useState<boolean>(false);
   const [activitiesError, setActivitiesError] = useState<string | null>(null);
+
+  const [myRegistrations, setMyRegistrations] = useState<EventRegistration[]>([]);
+  const [isLoadingRegistrations, setIsLoadingRegistrations] = useState<boolean>(false);
+  const [registrationsError, setRegistrationsError] = useState<string | null>(null);
 
   /**
    * Fetches real departments with live member counts from PostgreSQL
@@ -293,6 +314,23 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
   /**
+   * Fetches real user event registrations from PostgreSQL via Express API
+   */
+  const fetchMyRegistrations = useCallback(async () => {
+    setIsLoadingRegistrations(true);
+    setRegistrationsError(null);
+    try {
+      const regs = await getMyRegistrationsApi();
+      setMyRegistrations(regs);
+    } catch (err: any) {
+      console.warn('Failed to fetch my registrations:', err);
+      setRegistrationsError(err.message || 'Failed to load registrations.');
+    } finally {
+      setIsLoadingRegistrations(false);
+    }
+  }, []);
+
+  /**
    * Loads all database modules from PostgreSQL simultaneously
    */
   const loadAllDatabaseData = useCallback(async () => {
@@ -304,6 +342,7 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
       fetchCredits(),
       fetchTasks(),
       fetchActivities(),
+      fetchMyRegistrations(),
     ]);
   }, [
     fetchMembers,
@@ -313,6 +352,7 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
     fetchCredits,
     fetchTasks,
     fetchActivities,
+    fetchMyRegistrations,
   ]);
 
   // Restore authentication session from token on application startup
@@ -622,6 +662,47 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
+  /**
+   * Registers currently authenticated user for an event in PostgreSQL
+   */
+  const registerForEvent = async (eventId: string): Promise<void> => {
+    try {
+      await registerForEventApi(eventId);
+      await Promise.allSettled([
+        fetchMyRegistrations(),
+        fetchEvents(),
+        fetchActivities(),
+      ]);
+    } catch (err: any) {
+      console.error('Failed to register for event in database:', err);
+      throw err;
+    }
+  };
+
+  /**
+   * Cancels user's event registration in PostgreSQL
+   */
+  const cancelEventRegistration = async (eventId: string): Promise<void> => {
+    try {
+      await cancelEventRegistrationApi(eventId);
+      await Promise.allSettled([
+        fetchMyRegistrations(),
+        fetchEvents(),
+        fetchActivities(),
+      ]);
+    } catch (err: any) {
+      console.error('Failed to cancel event registration in database:', err);
+      throw err;
+    }
+  };
+
+  /**
+   * Fetches event registrations list (Admin / Department Head)
+   */
+  const getEventRegistrations = async (eventId: string) => {
+    return await getEventRegistrationsApi(eventId);
+  };
+
   return (
     <ClubStoreContext.Provider
       value={{
@@ -662,6 +743,13 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
         isLoadingActivities,
         activitiesError,
         fetchActivities,
+        myRegistrations,
+        isLoadingRegistrations,
+        registrationsError,
+        fetchMyRegistrations,
+        registerForEvent,
+        cancelEventRegistration,
+        getEventRegistrations,
         metrics,
         addMember,
         updateMember,
