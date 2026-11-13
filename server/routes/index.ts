@@ -9,6 +9,7 @@ import attendanceRoutes from './attendance.routes';
 import creditsRoutes from './credits.routes';
 import tasksRoutes from './tasks.routes';
 import activitiesRoutes from './activities.routes';
+import notificationsRoutes from './notifications.routes';
 
 const router = Router();
 
@@ -32,6 +33,7 @@ router.get('/health', async (_req: Request, res: Response) => {
       'credits',
       'tasks',
       'activities',
+      'notifications',
     ],
   });
 });
@@ -45,6 +47,7 @@ router.use('/attendance', attendanceRoutes);
 router.use('/credits', creditsRoutes);
 router.use('/tasks', tasksRoutes);
 router.use('/activities', activitiesRoutes);
+router.use('/notifications', notificationsRoutes);
 
 export default router;
 

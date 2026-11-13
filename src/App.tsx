@@ -11,6 +11,7 @@ import { CreditsPage } from './pages/CreditsPage';
 import { TasksPage } from './pages/TasksPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { SettingsPage } from './pages/SettingsPage';
+import { NotificationsPage } from './pages/NotificationsPage';
 
 const AppShell: React.FC = () => {
   const { currentPage, isAuthenticated, isLoadingAuth } = useClubStore();
@@ -53,6 +54,8 @@ const AppShell: React.FC = () => {
         return <ProfilePage />;
       case 'settings':
         return <SettingsPage />;
+      case 'notifications':
+        return <NotificationsPage />;
       default:
         return <DashboardPage />;
     }

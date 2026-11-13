@@ -1,7 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../db/prisma';
 import { sendSuccess, sendError } from '../utils/apiResponse';
-import { AttendanceStatus, ActivityCategory, UserRole } from '@prisma/client';
+import { AttendanceStatus, ActivityCategory, UserRole, NotificationType } from '@prisma/client';
+import { NotificationService } from '../services/notification.service';
 
 function mapAttendanceStatus(input: any): AttendanceStatus | null {
   if (!input) return null;
@@ -289,6 +290,19 @@ export class AttendanceController {
           category: ActivityCategory.ATTENDANCE,
         },
       });
+
+      // Dispatch in-app notification to member
+      try {
+        await NotificationService.notifyUser(prisma, {
+          userId: memberId,
+          title: 'Attendance Recorded',
+          message: `Your attendance for "${event.title}" was marked as ${formatAttendanceStatus(mappedStatus)}.`,
+          type: NotificationType.ATTENDANCE,
+          relatedEntityId: event.id,
+        });
+      } catch (notifErr) {
+        console.error('Failed to dispatch attendance notification:', notifErr);
+      }
 
       sendSuccess(res, { ...formatAttendanceRecord(record), attendancePercentage: newPercentage }, 'Attendance updated.');
     } catch (err) {

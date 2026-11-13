@@ -1,7 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../db/prisma';
 import { sendSuccess, sendError } from '../utils/apiResponse';
-import { RegistrationStatus, ActivityCategory, EventStatus, UserRole } from '@prisma/client';
+import { RegistrationStatus, ActivityCategory, EventStatus, UserRole, NotificationType } from '@prisma/client';
+import { NotificationService } from '../services/notification.service';
 
 /**
  * Determines whether an event is in the past
@@ -334,6 +335,15 @@ export class RegistrationsController {
           },
         });
 
+        // Record in-app notification atomically
+        await NotificationService.notifyUser(tx, {
+          userId: user.userId,
+          title: 'RSVP Confirmed',
+          message: `You are registered for "${lockedEvent.title}".`,
+          type: NotificationType.REGISTRATION,
+          relatedEntityId: eventId,
+        });
+
         return registration;
       });
 
@@ -436,6 +446,15 @@ export class RegistrationsController {
             target: lockedEvent.title,
             category: ActivityCategory.EVENT,
           },
+        });
+
+        // Record in-app notification atomically
+        await NotificationService.notifyUser(tx, {
+          userId: user.userId,
+          title: 'RSVP Cancelled',
+          message: `Your registration for "${lockedEvent.title}" has been cancelled.`,
+          type: NotificationType.REGISTRATION,
+          relatedEntityId: eventId,
         });
 
         return cancelled;

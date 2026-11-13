@@ -1,7 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../db/prisma';
 import { sendSuccess, sendError } from '../utils/apiResponse';
-import { EventStatus, RegistrationStatus, UserRole } from '@prisma/client';
+import { EventStatus, RegistrationStatus, UserRole, NotificationType } from '@prisma/client';
+import { NotificationService } from '../services/notification.service';
 
 /**
  * Maps frontend or case-insensitive status string to Prisma EventStatus enum
@@ -295,6 +296,36 @@ export class EventsController {
         },
       });
 
+      // Trigger in-app notifications before responding
+      try {
+        if (targetDeptId) {
+          await NotificationService.notifyDepartmentMembers(
+            prisma,
+            targetDeptId,
+            {
+              title: 'New Department Event',
+              message: `A new session "${event.title}" has been scheduled for ${event.date}.`,
+              type: NotificationType.EVENT,
+              relatedEntityId: event.id,
+            },
+            user.userId
+          );
+        } else {
+          await NotificationService.notifyAllActiveMembers(
+            prisma,
+            {
+              title: 'New Club-Wide Event',
+              message: `"${event.title}" has been scheduled for ${event.date}. RSVP now!`,
+              type: NotificationType.EVENT,
+              relatedEntityId: event.id,
+            },
+            user.userId
+          );
+        }
+      } catch (notifErr) {
+        console.error('Failed to dispatch event notifications:', notifErr);
+      }
+
       sendSuccess(res, formatEvent(event), 'Event created successfully.', 201);
     } catch (err) {
       next(err);
@@ -440,6 +471,31 @@ export class EventsController {
         },
       });
 
+      // If status changed to CANCELLED, notify all registered members
+      if (updateData.status === EventStatus.CANCELLED) {
+        try {
+          const registeredUsers = await prisma.eventRegistration.findMany({
+            where: { eventId: id, status: RegistrationStatus.REGISTERED },
+            select: { userId: true },
+          });
+
+          if (registeredUsers.length > 0) {
+            await NotificationService.notifyUsers(
+              prisma,
+              registeredUsers.map((r) => r.userId),
+              {
+                title: 'Event Cancelled',
+                message: `"${existingEvent.title}" scheduled for ${existingEvent.date} has been cancelled.`,
+                type: NotificationType.EVENT,
+                relatedEntityId: id,
+              }
+            );
+          }
+        } catch (notifErr) {
+          console.error('Failed to notify members of event cancellation:', notifErr);
+        }
+      }
+
       sendSuccess(res, formatEvent(updated), 'Event updated successfully.');
     } catch (err) {
       next(err);
@@ -489,9 +545,32 @@ export class EventsController {
         return;
       }
 
+      // Fetch registered users to notify before deletion
+      const registeredUsers = await prisma.eventRegistration.findMany({
+        where: { eventId: id, status: RegistrationStatus.REGISTERED },
+        select: { userId: true },
+      });
+
       await prisma.clubEvent.delete({
         where: { id },
       });
+
+      if (registeredUsers.length > 0) {
+        try {
+          await NotificationService.notifyUsers(
+            prisma,
+            registeredUsers.map((r) => r.userId),
+            {
+              title: 'Event Cancelled',
+              message: `"${existingEvent.title}" scheduled for ${existingEvent.date} has been cancelled and removed.`,
+              type: NotificationType.EVENT,
+              relatedEntityId: id,
+            }
+          );
+        } catch (notifErr) {
+          console.error('Failed to notify registered members of event deletion:', notifErr);
+        }
+      }
 
       sendSuccess(res, { id }, 'Event deleted successfully.');
     } catch (err) {

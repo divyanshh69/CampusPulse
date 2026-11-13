@@ -9,6 +9,7 @@ import {
   UserCircle,
   Settings,
   LogOut,
+  Bell,
   X,
 } from 'lucide-react';
 import { PageRoute } from '../../types';
@@ -32,6 +33,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'attendance', label: 'Attendance', icon: UserCheck },
   { id: 'credits', label: 'Credits', icon: Award },
   { id: 'tasks', label: 'Tasks', icon: CheckSquare },
+  { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'profile', label: 'Profile', icon: UserCircle },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
@@ -40,7 +42,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isOpenMobile,
   onCloseMobile,
 }) => {
-  const { currentPage, setCurrentPage, currentUser, logout, setViewingMember } = useClubStore();
+  const {
+    currentPage,
+    setCurrentPage,
+    currentUser,
+    unreadNotificationCount,
+    logout,
+    setViewingMember,
+  } = useClubStore();
 
   const handleNavigate = (page: PageRoute) => {
     if (page === 'profile') {
@@ -115,6 +124,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }`}
                 />
                 <span className="whitespace-nowrap">{item.label}</span>
+                {item.id === 'notifications' && unreadNotificationCount > 0 && (
+                  <span
+                    className={`ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-bold font-mono ${
+                      isActive
+                        ? 'bg-white text-slate-900'
+                        : 'bg-red-600 text-white'
+                    }`}
+                  >
+                    {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
+                  </span>
+                )}
               </button>
             );
           })}

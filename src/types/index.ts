@@ -127,6 +127,26 @@ export interface ActivityLog {
   category: 'member' | 'event' | 'attendance' | 'credit' | 'task';
 }
 
+export type NotificationType =
+  | 'EVENT'
+  | 'REGISTRATION'
+  | 'TASK'
+  | 'CREDIT'
+  | 'ATTENDANCE'
+  | 'SYSTEM';
+
+export interface Notification {
+  id: string;
+  userId: string;
+  title: string;
+  message: string;
+  type: NotificationType;
+  isRead: boolean;
+  relatedEntityId?: string;
+  createdAt: string;
+  readAt?: string;
+}
+
 export type PageRoute =
   | 'dashboard'
   | 'members'
@@ -136,4 +156,5 @@ export type PageRoute =
   | 'tasks'
   | 'profile'
   | 'settings'
+  | 'notifications'
   | 'login';

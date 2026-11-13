@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../db/prisma';
 import { sendSuccess, sendError } from '../utils/apiResponse';
-import { CreditCategory, ActivityCategory, UserRole } from '@prisma/client';
+import { CreditCategory, ActivityCategory, UserRole, NotificationType } from '@prisma/client';
 
 function mapCreditCategory(input: any): CreditCategory {
   if (!input) return CreditCategory.TASK_COMPLETION;
@@ -244,6 +244,17 @@ export class CreditsController {
             action: `Recorded ${numericDelta > 0 ? '+' : ''}${numericDelta} credits for`,
             target: `${targetMember.name} (${reason.trim()})`,
             category: ActivityCategory.CREDIT,
+          },
+        }),
+        prisma.notification.create({
+          data: {
+            userId: memberId,
+            title: numericDelta > 0 ? 'Credits Awarded' : 'Credits Deducted',
+            message:
+              numericDelta > 0
+                ? `You received +${numericDelta} credits: ${reason.trim()}`
+                : `${Math.abs(numericDelta)} credits were deducted: ${reason.trim()}`,
+            type: NotificationType.CREDIT,
           },
         }),
       ]);

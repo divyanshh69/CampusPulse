@@ -1,7 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../db/prisma';
 import { sendSuccess, sendError } from '../utils/apiResponse';
-import { TaskStatus, TaskPriority, CreditCategory, ActivityCategory, UserRole } from '@prisma/client';
+import { TaskStatus, TaskPriority, CreditCategory, ActivityCategory, UserRole, NotificationType } from '@prisma/client';
+import { NotificationService } from '../services/notification.service';
 
 function mapTaskStatus(input: any): TaskStatus | null {
   if (!input) return null;
@@ -281,6 +282,19 @@ export class TasksController {
         }),
       ]);
 
+      // Trigger task notification to assignee
+      try {
+        await NotificationService.notifyUser(prisma, {
+          userId: assignedToId,
+          title: 'New Task Assigned',
+          message: `You were assigned: "${title.trim()}". Deadline: ${deadline.trim()}.`,
+          type: NotificationType.TASK,
+          relatedEntityId: task.id,
+        });
+      } catch (notifErr) {
+        console.error('Failed to dispatch task assignment notification:', notifErr);
+      }
+
       sendSuccess(res, formatTaskResponse(task), 'Task created successfully.', 201);
     } catch (err) {
       next(err);
@@ -412,6 +426,20 @@ export class TasksController {
           }),
         ]);
         updatedTask = task;
+      }
+
+      if (!wasCompleted && isNowCompleted) {
+        try {
+          await NotificationService.notifyUser(prisma, {
+            userId: existing.assignedToId,
+            title: 'Task Completed',
+            message: `"${existing.title}" was completed (+${existing.creditValue} credits awarded).`,
+            type: NotificationType.TASK,
+            relatedEntityId: id,
+          });
+        } catch (notifErr) {
+          console.error('Failed to dispatch task completion notification:', notifErr);
+        }
       }
 
       sendSuccess(res, formatTaskResponse(updatedTask), `Task status updated to ${formatTaskStatus(targetStatus)}.`);

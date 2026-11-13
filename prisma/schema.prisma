@@ -43,6 +43,7 @@ model User {
   activityLogs         ActivityLog[]
   attendanceRecords    AttendanceRecord[]
   registrations        EventRegistration[]
+  notifications        Notification[]
   assignedTasks        ClubTask[]
   issuedCredits        CreditTransaction[] @relation("IssuedCredits")
   creditTransactions   CreditTransaction[] @relation("MemberCredits")
@@ -171,6 +172,24 @@ model ActivityLog {
   @@map("activity_logs")
 }
 
+model Notification {
+  id              String           @id @default(cuid())
+  userId          String
+  title           String
+  message         String
+  type            NotificationType @default(SYSTEM)
+  isRead          Boolean          @default(false)
+  relatedEntityId String?
+  createdAt       DateTime         @default(now())
+  readAt          DateTime?
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
 enum UserRole {
   ADMIN
   DEPARTMENT_HEAD
@@ -235,4 +254,13 @@ enum ActivityCategory {
 enum RegistrationStatus {
   REGISTERED
   CANCELLED
+}
+
+enum NotificationType {
+  EVENT
+  REGISTRATION
+  TASK
+  CREDIT
+  ATTENDANCE
+  SYSTEM
 }

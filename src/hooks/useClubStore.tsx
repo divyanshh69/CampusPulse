@@ -9,6 +9,7 @@ import {
   ClubTask,
   ActivityLog,
   EventRegistration,
+  Notification,
   PageRoute,
   UserRole,
   DepartmentName,
@@ -52,6 +53,11 @@ import {
   getEventRegistrationsApi,
   registerForEventApi,
   cancelEventRegistrationApi,
+  getNotificationsApi,
+  getUnreadNotificationCountApi,
+  markNotificationAsReadApi,
+  markAllNotificationsAsReadApi,
+  deleteNotificationApi,
 } from '../services/api';
 
 interface ClubStoreContextValue {
@@ -111,6 +117,27 @@ interface ClubStoreContextValue {
     registrations: EventRegistration[];
     count: number;
   }>;
+
+  notifications: Notification[];
+  unreadNotificationCount: number;
+  isLoadingNotifications: boolean;
+  notificationsError: string | null;
+  notificationsPagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+  fetchNotifications: (params?: {
+    page?: number;
+    limit?: number;
+    unreadOnly?: boolean;
+    type?: string;
+  }) => Promise<void>;
+  fetchUnreadNotificationCount: () => Promise<void>;
+  markNotificationAsRead: (id: string) => Promise<void>;
+  markAllNotificationsAsRead: () => Promise<void>;
+  deleteNotification: (id: string) => Promise<void>;
 
   metrics: DashboardMetrics;
 
@@ -194,6 +221,17 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
   const [myRegistrations, setMyRegistrations] = useState<EventRegistration[]>([]);
   const [isLoadingRegistrations, setIsLoadingRegistrations] = useState<boolean>(false);
   const [registrationsError, setRegistrationsError] = useState<string | null>(null);
+
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState<number>(0);
+  const [isLoadingNotifications, setIsLoadingNotifications] = useState<boolean>(false);
+  const [notificationsError, setNotificationsError] = useState<string | null>(null);
+  const [notificationsPagination, setNotificationsPagination] = useState({
+    page: 1,
+    limit: 20,
+    total: 0,
+    totalPages: 1,
+  });
 
   /**
    * Fetches real departments with live member counts from PostgreSQL
@@ -331,6 +369,45 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
   /**
+   * Fetches real in-app notifications from PostgreSQL via Express API
+   */
+  const fetchNotifications = useCallback(
+    async (params?: {
+      page?: number;
+      limit?: number;
+      unreadOnly?: boolean;
+      type?: string;
+    }) => {
+      setIsLoadingNotifications(true);
+      setNotificationsError(null);
+      try {
+        const res = await getNotificationsApi(params);
+        setNotifications(res.notifications);
+        setNotificationsPagination(res.pagination);
+        setUnreadNotificationCount(res.unreadCount);
+      } catch (err: any) {
+        console.warn('Failed to fetch notifications:', err);
+        setNotificationsError(err.message || 'Failed to load notifications.');
+      } finally {
+        setIsLoadingNotifications(false);
+      }
+    },
+    []
+  );
+
+  /**
+   * Fetches unread notification count
+   */
+  const fetchUnreadNotificationCount = useCallback(async () => {
+    try {
+      const count = await getUnreadNotificationCountApi();
+      setUnreadNotificationCount(count);
+    } catch (err: any) {
+      console.warn('Failed to fetch unread notification count:', err);
+    }
+  }, []);
+
+  /**
    * Loads all database modules from PostgreSQL simultaneously
    */
   const loadAllDatabaseData = useCallback(async () => {
@@ -343,6 +420,8 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
       fetchTasks(),
       fetchActivities(),
       fetchMyRegistrations(),
+      fetchNotifications(),
+      fetchUnreadNotificationCount(),
     ]);
   }, [
     fetchMembers,
@@ -353,6 +432,8 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
     fetchTasks,
     fetchActivities,
     fetchMyRegistrations,
+    fetchNotifications,
+    fetchUnreadNotificationCount,
   ]);
 
   // Restore authentication session from token on application startup
@@ -423,6 +504,8 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
     setToken(null);
     setAuthenticatedUser(null);
     setIsAuthenticated(false);
+    setNotifications([]);
+    setUnreadNotificationCount(0);
     setCurrentPage('login');
   };
 
@@ -703,6 +786,58 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
     return await getEventRegistrationsApi(eventId);
   };
 
+  /**
+   * Marks a notification as read
+   */
+  const markNotificationAsRead = async (id: string): Promise<void> => {
+    try {
+      await markNotificationAsReadApi(id);
+      setNotifications((prev) =>
+        prev.map((n) =>
+          n.id === id ? { ...n, isRead: true, readAt: new Date().toISOString() } : n
+        )
+      );
+      setUnreadNotificationCount((prev) => Math.max(0, prev - 1));
+    } catch (err: any) {
+      console.error('Failed to mark notification as read in database:', err);
+      throw err;
+    }
+  };
+
+  /**
+   * Marks all notifications as read
+   */
+  const markAllNotificationsAsRead = async (): Promise<void> => {
+    try {
+      await markAllNotificationsAsReadApi();
+      setNotifications((prev) =>
+        prev.map((n) => ({
+          ...n,
+          isRead: true,
+          readAt: n.readAt || new Date().toISOString(),
+        }))
+      );
+      setUnreadNotificationCount(0);
+    } catch (err: any) {
+      console.error('Failed to mark all notifications as read in database:', err);
+      throw err;
+    }
+  };
+
+  /**
+   * Deletes a notification
+   */
+  const deleteNotification = async (id: string): Promise<void> => {
+    try {
+      await deleteNotificationApi(id);
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+      await fetchUnreadNotificationCount();
+    } catch (err: any) {
+      console.error('Failed to delete notification in database:', err);
+      throw err;
+    }
+  };
+
   return (
     <ClubStoreContext.Provider
       value={{
@@ -750,6 +885,16 @@ export const ClubStoreProvider: React.FC<{ children: React.ReactNode }> = ({
         registerForEvent,
         cancelEventRegistration,
         getEventRegistrations,
+        notifications,
+        unreadNotificationCount,
+        isLoadingNotifications,
+        notificationsError,
+        notificationsPagination,
+        fetchNotifications,
+        fetchUnreadNotificationCount,
+        markNotificationAsRead,
+        markAllNotificationsAsRead,
+        deleteNotification,
         metrics,
         addMember,
         updateMember,

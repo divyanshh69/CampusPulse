@@ -12,6 +12,7 @@ import {
   TaskStatus,
   ActivityLog,
   EventRegistration,
+  Notification,
 } from '../types';
 
 /**
@@ -757,4 +758,92 @@ export async function cancelEventRegistrationApi(
     throw new Error(payload.message || 'Failed to cancel event registration.');
   }
   return payload.data;
+}
+
+/**
+ * -------------------------------------------------------------
+ * Notifications API Service Functions
+ * -------------------------------------------------------------
+ */
+
+export async function getNotificationsApi(filters?: {
+  page?: number;
+  limit?: number;
+  unreadOnly?: boolean;
+  type?: string;
+}): Promise<{
+  notifications: Notification[];
+  pagination: { page: number; limit: number; total: number; totalPages: number };
+  unreadCount: number;
+}> {
+  const params = new URLSearchParams();
+  if (filters?.page) params.append('page', String(filters.page));
+  if (filters?.limit) params.append('limit', String(filters.limit));
+  if (filters?.unreadOnly) params.append('unreadOnly', 'true');
+  if (filters?.type && filters.type !== 'ALL') params.append('type', filters.type);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+
+  const res = await fetch(`/api/notifications${qs}`, {
+    method: 'GET',
+    headers: getAuthHeaders(),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to fetch notifications.');
+  }
+  return (
+    payload.data || {
+      notifications: [],
+      pagination: { page: 1, limit: 20, total: 0, totalPages: 1 },
+      unreadCount: 0,
+    }
+  );
+}
+
+export async function getUnreadNotificationCountApi(): Promise<number> {
+  const res = await fetch('/api/notifications/unread-count', {
+    method: 'GET',
+    headers: getAuthHeaders(),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to fetch unread notification count.');
+  }
+  return payload.data?.unreadCount ?? 0;
+}
+
+export async function markNotificationAsReadApi(id: string): Promise<Notification> {
+  const res = await fetch(`/api/notifications/${id}/read`, {
+    method: 'PATCH',
+    headers: getAuthHeaders(),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to mark notification as read.');
+  }
+  return payload.data;
+}
+
+export async function markAllNotificationsAsReadApi(): Promise<number> {
+  const res = await fetch('/api/notifications/read-all', {
+    method: 'PATCH',
+    headers: getAuthHeaders(),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to mark all notifications as read.');
+  }
+  return payload.data?.updatedCount ?? 0;
+}
+
+export async function deleteNotificationApi(id: string): Promise<string> {
+  const res = await fetch(`/api/notifications/${id}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || !payload.success) {
+    throw new Error(payload.message || 'Failed to delete notification.');
+  }
+  return payload.data?.id ?? id;
 }

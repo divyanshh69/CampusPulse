@@ -1,6 +1,19 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bell, Menu, ChevronDown, UserCircle, Settings, LogOut } from 'lucide-react';
-import { PageRoute } from '../../types';
+import {
+  Bell,
+  Menu,
+  ChevronDown,
+  UserCircle,
+  Settings,
+  LogOut,
+  Calendar,
+  Ticket,
+  CheckSquare,
+  Award,
+  UserCheck,
+  CheckCheck,
+} from 'lucide-react';
+import { PageRoute, NotificationType, Notification } from '../../types';
 import { useClubStore } from '../../hooks/useClubStore';
 
 interface HeaderProps {
@@ -16,15 +29,57 @@ const PAGE_TITLES: Record<PageRoute, { title: string; breadcrumb: string }> = {
   tasks: { title: 'Task Board', breadcrumb: 'Deliverables / Assignments' },
   profile: { title: 'Member Profile', breadcrumb: 'Account / Personal Record' },
   settings: { title: 'Platform Settings', breadcrumb: 'Administration / Configuration' },
+  notifications: { title: 'Notifications', breadcrumb: 'Inbox / In-App Alerts' },
   login: { title: 'Sign In', breadcrumb: 'Authentication' },
 };
+
+function formatRelativeTime(dateStr: string): string {
+  try {
+    const diffMs = Date.now() - new Date(dateStr).getTime();
+    const diffSec = Math.floor(diffMs / 1000);
+    if (diffSec < 60) return 'Just now';
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHours = Math.floor(diffMin / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return new Date(dateStr).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return dateStr;
+  }
+}
+
+function getNotificationIcon(type: NotificationType) {
+  switch (type) {
+    case 'EVENT':
+      return <Calendar className="h-3.5 w-3.5 text-blue-500 shrink-0" />;
+    case 'REGISTRATION':
+      return <Ticket className="h-3.5 w-3.5 text-emerald-500 shrink-0" />;
+    case 'TASK':
+      return <CheckSquare className="h-3.5 w-3.5 text-amber-500 shrink-0" />;
+    case 'CREDIT':
+      return <Award className="h-3.5 w-3.5 text-purple-500 shrink-0" />;
+    case 'ATTENDANCE':
+      return <UserCheck className="h-3.5 w-3.5 text-teal-500 shrink-0" />;
+    case 'SYSTEM':
+    default:
+      return <Bell className="h-3.5 w-3.5 text-slate-500 shrink-0" />;
+  }
+}
 
 export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
   const {
     currentPage,
     setCurrentPage,
     currentUser,
-    activities,
+    notifications,
+    unreadNotificationCount,
+    markNotificationAsRead,
+    markAllNotificationsAsRead,
     logout,
     setViewingMember,
   } = useClubStore();
@@ -48,6 +103,24 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const handleNotificationClick = async (notif: Notification) => {
+    if (!notif.isRead) {
+      await markNotificationAsRead(notif.id);
+    }
+    setIsNotificationsOpen(false);
+
+    // Route to relevant module page
+    if (notif.type === 'EVENT' || notif.type === 'REGISTRATION') {
+      setCurrentPage('events');
+    } else if (notif.type === 'TASK') {
+      setCurrentPage('tasks');
+    } else if (notif.type === 'CREDIT') {
+      setCurrentPage('credits');
+    } else if (notif.type === 'ATTENDANCE') {
+      setCurrentPage('attendance');
+    }
+  };
+
   const meta = PAGE_TITLES[currentPage] || PAGE_TITLES.dashboard;
   const initials = currentUser.name
     .split(' ')
@@ -55,6 +128,8 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
     .join('')
     .slice(0, 2)
     .toUpperCase();
+
+  const recentNotifications = notifications.slice(0, 5);
 
   return (
     <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-white px-4 sm:px-6">
@@ -81,7 +156,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
 
       {/* Right Zone: Notifications & User Profile Menu */}
       <div className="flex items-center gap-3 shrink-0">
-        {/* Notification Dropdown */}
+        {/* Notification Bell & Dropdown */}
         <div className="relative" ref={notifRef}>
           <button
             type="button"
@@ -89,42 +164,95 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
               setIsNotificationsOpen((prev) => !prev);
               setIsProfileMenuOpen(false);
             }}
-            aria-label="View club notifications"
+            aria-label="View notifications"
             aria-expanded={isNotificationsOpen}
             className="relative flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors cursor-pointer"
           >
             <Bell className="h-4 w-4" />
-            <span className="sr-only">Notifications ({activities.length})</span>
+            {unreadNotificationCount > 0 && (
+              <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white font-mono animate-pulse">
+                {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
+              </span>
+            )}
+            <span className="sr-only">Notifications ({unreadNotificationCount} unread)</span>
           </button>
 
           {isNotificationsOpen && (
-            <div className="absolute right-0 mt-2 w-80 rounded-xl border border-slate-200 bg-white shadow-lg p-4 z-50">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-                <span className="text-xs font-semibold text-slate-900">
-                  Recent Club Notifications
-                </span>
-                <span className="text-xs font-mono text-slate-400">
-                  {activities.slice(0, 4).length} updates
-                </span>
-              </div>
-              <ul className="mt-2 divide-y divide-slate-100 max-h-64 overflow-y-auto">
-                {activities.slice(0, 4).map((act) => (
-                  <li key={act.id} className="py-2.5 text-xs">
-                    <p className="text-slate-700">
-                      <span className="font-semibold text-slate-900">
-                        {act.actorName}
-                      </span>{' '}
-                      {act.action.toLowerCase()}{' '}
-                      <span className="font-medium text-slate-900">
-                        {act.target}
-                      </span>
-                    </p>
-                    <span className="mt-0.5 block text-[11px] text-slate-400 font-mono">
-                      {act.timestamp}
+            <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-xl border border-slate-200 bg-white shadow-xl z-50 overflow-hidden">
+              <div className="flex items-center justify-between border-b border-slate-100 p-3 bg-slate-50/50">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-slate-900">
+                    Notifications
+                  </span>
+                  {unreadNotificationCount > 0 && (
+                    <span className="rounded-full bg-red-100 text-red-700 px-1.5 py-0.2 text-[10px] font-semibold font-mono">
+                      {unreadNotificationCount} unread
                     </span>
-                  </li>
-                ))}
-              </ul>
+                  )}
+                </div>
+                {unreadNotificationCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => markAllNotificationsAsRead()}
+                    className="flex items-center gap-1 text-[11px] font-medium text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
+                  >
+                    <CheckCheck className="h-3 w-3" />
+                    <span>Mark all read</span>
+                  </button>
+                )}
+              </div>
+
+              {recentNotifications.length === 0 ? (
+                <div className="py-8 text-center text-xs text-slate-400">
+                  <Bell className="h-7 w-7 mx-auto text-slate-300 mb-2" />
+                  <span>No notifications yet</span>
+                </div>
+              ) : (
+                <ul className="divide-y divide-slate-100 max-h-72 overflow-y-auto">
+                  {recentNotifications.map((notif) => (
+                    <li
+                      key={notif.id}
+                      onClick={() => handleNotificationClick(notif)}
+                      className={`p-3 text-xs cursor-pointer transition-colors flex items-start gap-2.5 ${
+                        notif.isRead ? 'bg-white hover:bg-slate-50' : 'bg-blue-50/40 hover:bg-blue-50/70'
+                      }`}
+                    >
+                      <div className="mt-0.5">
+                        {getNotificationIcon(notif.type)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="font-semibold text-slate-900 truncate">
+                            {notif.title}
+                          </p>
+                          <span className="text-[10px] text-slate-400 font-mono shrink-0">
+                            {formatRelativeTime(notif.createdAt)}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-slate-600 line-clamp-2 leading-relaxed text-[11px]">
+                          {notif.message}
+                        </p>
+                      </div>
+                      {!notif.isRead && (
+                        <span className="h-2 w-2 rounded-full bg-blue-600 shrink-0 mt-1.5" />
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <div className="border-t border-slate-100 p-2.5 bg-slate-50/70 text-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCurrentPage('notifications');
+                    setIsNotificationsOpen(false);
+                  }}
+                  className="text-xs font-semibold text-slate-700 hover:text-slate-900 transition-colors cursor-pointer w-full py-1"
+                >
+                  View all notifications →
+                </button>
+              </div>
             </div>
           )}
         </div>
